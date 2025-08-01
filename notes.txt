@@ -1,0 +1,12 @@
+To use the mongo api rout do the following below: 
+
+import clientPromise from "@/lib/db";
+
+export default async function handler(req, res) {
+  const client = await clientPromise;
+  const db = client.db("your-db-name");
+  const tasks = await db.collection("tasks").find().toArray();
+  res.json(tasks);
+}
+
+
