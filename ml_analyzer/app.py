@@ -1,12 +1,21 @@
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI()
 
 @app.post("/analyze")
-async def analyze(request: Request):
-    try:
+async def analyze(request: Request): 
+    try: 
         data = await request.json()
-        return {"received_data": data}
-    except Exception:
+        return {"message": "Hello World"}
+    except Exception: 
         return JSONResponse(content={"error": "Invalid or missing JSON body"}, status_code=400)
+
+app.add_middleware(
+    CORSMiddleware, 
+    allow_origins = ["http://localhost:3000"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
