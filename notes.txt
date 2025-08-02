@@ -10,3 +10,8 @@ export default async function handler(req, res) {
 }
 
 
+In order to switch the python interpreter so that the file will understand the best library you need to do the following: 
+- open command palette using (command+shift+P)
+- type (Python: Select Interpreter)
+- type the location to where the bin is (/Users/chetant/Documents/GitHub/gmail_ai_analyzer/ml_analyzer/venv/bin/python)
+
