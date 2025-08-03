@@ -6,7 +6,7 @@ export default function HelloWorldBox() {
 
   async function handleClick() {
     try {
-      const res = await fetch("https://gmail-ai-analyzer.onrender.com/analyze", {
+      const res = await fetch("${process.env.NEXT_PUBLIC_API_URL}/analyze", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ input: "test" }),
