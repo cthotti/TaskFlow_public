@@ -8,7 +8,7 @@ app = FastAPI()
 async def analyze(request: Request): 
     try: 
         data = await request.json()
-        return {"message": "hello sexy man 123"}
+        return {"message": "does the python actually work?"}
     except Exception: 
         return JSONResponse(content={"error": "Invalid or missing JSON body"}, status_code=400)
 
