@@ -5,7 +5,7 @@ export default function Home() {
   const [message, setMessage] = useState("");
 
   const callBackend = async () => {
-    const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}`, {
+    const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/analyze`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ input: "test" }),
