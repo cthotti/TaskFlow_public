@@ -1,16 +1,9 @@
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
+from datetime import datetime
 
 app = FastAPI()
-
-@app.post("/analyze")
-async def analyze(request: Request): 
-    try: 
-        data = await request.json()
-        return {"message": "does the python actually work?"}
-    except Exception: 
-        return JSONResponse(content={"error": "Invalid or missing JSON body"}, status_code=400)
 
 app.add_middleware(
     CORSMiddleware, 
@@ -20,3 +13,20 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+@app.post("/analyze")
+async def analyze(request: Request): 
+    try: 
+        data = await request.json()
+        return {"message": "hellow world?"}
+    except Exception: 
+        return JSONResponse(content={"error": "Invalid or missing JSON body"}, status_code=400)
+    
+@app.get("/date")
+def get_current_date():
+    now = datetime.now()
+    return {
+        "date": now.strftime("%A, %B %d, %Y"),
+        "time": now.strftime("%I:%M %p")
+    }
+
