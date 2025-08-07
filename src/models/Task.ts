@@ -1,11 +1,9 @@
 import mongoose from "mongoose";
 
 const TaskSchema = new mongoose.Schema({
-  title: { type: String, required: true },
-  dueTime: { type: String, required: true },
-  color: { type: String, required: true },
+  text: String,
+  due: String,
+  color: String,
 });
 
-const Task = mongoose.models.Task || mongoose.model("Task", TaskSchema);
-
-export default Task;
+export default mongoose.models.Task || mongoose.model("Task", TaskSchema);
