@@ -1,29 +1,28 @@
-import { MongoClient } from "mongodb";
+import mongoose from "mongoose";
 
-const uri = process.env.MONGODB_URI as string;
-const options = {};
+const MONGODB_URI = process.env.MONGODB_URI as string;
 
-let client: MongoClient;
-let clientPromise: Promise<MongoClient>;
-
-if (!process.env.MONGODB_URI) {
+if (!MONGODB_URI) {
   throw new Error("Please add your Mongo URI to .env.local");
 }
 
-declare global {
-  var _mongoClientPromise: Promise<MongoClient>;
-}
+let isConnected = false;
 
-if (process.env.NODE_ENV === "development") {
-  if (!global._mongoClientPromise) {
-    client = new MongoClient(uri, options);
-    global._mongoClientPromise = client.connect();
+const connectDB = async () => {
+  if (isConnected) return;
+
+  try {
+    await mongoose.connect(MONGODB_URI, {
+      dbName: "gmail-analyzer",
+      useNewUrlParser: true,
+      useUnifiedTopology: true,
+    } as any);
+    isConnected = true;
+    console.log("Connected to MongoDB");
+  } catch (error) {
+    console.error("MongoDB connection error:", error);
+    throw error;
   }
-  clientPromise = global._mongoClientPromise;
-} else {
-  client = new MongoClient(uri, options);
-  clientPromise = client.connect();
-}
+};
 
-export default clientPromise;
-
+export default connectDB;
