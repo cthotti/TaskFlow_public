@@ -65,8 +65,6 @@ export default function TodoList() {
   };
 
   const deleteTask = async (id: string) => {
-    const confirmed = confirm("Are you sure you want to delete this task?");
-    if (!confirmed) return;
     await fetch(`/api/tasks/${id}`, { method: "DELETE" });
     setTasks(tasks.filter((task) => task._id !== id));
   };
@@ -127,41 +125,39 @@ export default function TodoList() {
       )}
 
       {tasks.map((task, index) => (
-        <div
-          key={task._id}
-          className="flex justify-between items-center p-3 mb-2 rounded"
-          style={{ backgroundColor: task.color }}
-        >
-          <div>
-            <div className="font-semibold text-lg text-black">{task.text}</div>
-            <div className="text-md text-black">
-              Due: {formatTime12Hour(task.due)}
+        <div key={task._id} className="flex items-center space-x-4">
+          {/* Task Box */}
+          <div
+            className="flex justify-between items-center p-4 mb-2 rounded flex-grow"
+            style={{ backgroundColor: task.color }}
+          >
+            <div>
+              <div className="font-semibold text-lg text-black">{task.text}</div>
+              <div className="text-md text-black">Due: {formatTime12Hour(task.due)}</div>
+            </div>
+
+            <div className="flex items-center space-x-3">
+              <button
+                onClick={() => moveTaskUp(index)}
+                className="text-2xl text-gray-700 hover:text-black"
+              >
+                ↑
+              </button>
+              <button
+                onClick={() => moveTaskDown(index)}
+                className="text-2xl text-gray-700 hover:text-black"
+              >
+                ↓
+              </button>
             </div>
           </div>
 
-          <div className="flex items-center space-x-3">
-            {/* Move Up */}
-            <button
-              onClick={() => moveTaskUp(index)}
-              className="text-2xl text-gray-700 hover:text-black"
-            >
-              ↑
-            </button>
-            {/* Move Down */}
-            <button
-              onClick={() => moveTaskDown(index)}
-              className="text-2xl text-gray-700 hover:text-black"
-            >
-              ↓
-            </button>
-            {/* Delete */}
-            <button
-              onClick={() => deleteTask(task._id!)}
-              className="text-3xl text-red-500 hover:text-red-700"
-            >
-              ×
-            </button>
-          </div>
+          {/* Checkbox for Delete */}
+          <input
+            type="checkbox"
+            className="w-6 h-6 cursor-pointer"
+            onChange={() => deleteTask(task._id!)}
+          />
         </div>
       ))}
     </div>
