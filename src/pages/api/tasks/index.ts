@@ -15,7 +15,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const { text, due } = req.body;
 
     const colors = [
-  "#563263", "#B23E53", "#F14C55", "#FE6345","#FC7849"
+  "#E1A36F", "#DEC484", "#E2D8A5","#6F9F9C","#577E89"
 ];
     const color = colors[Math.floor(Math.random() * colors.length)];
 

@@ -1,5 +1,8 @@
 "use client";
 import { useEffect, useState } from "react";
+import { Inter } from "next/font/google";
+
+const inter = Inter({ subsets: ["latin"] });
 
 type Task = {
   _id?: string;
@@ -19,9 +22,17 @@ export default function TodoList() {
   const [dueTime, setDueTime] = useState("");
   const [dateInfo, setDateInfo] = useState<DateInfo>({ date: "" });
 
+  const formatTime12Hour = (time: string) => {
+    if (!time) return "";
+    const [hour, minute] = time.split(":").map(Number);
+    const ampm = hour >= 12 ? "PM" : "AM";
+    const adjustedHour = hour % 12 || 12;
+    return `${adjustedHour}:${minute.toString().padStart(2, "0")} ${ampm}`;
+  };
+
   const sortTasksByTime = (tasksArray: Task[]) => {
     return [...tasksArray].sort((a, b) => {
-      const timeA = a.due.padStart(5, "0"); // Ensure consistent format
+      const timeA = a.due.padStart(5, "0");
       const timeB = b.due.padStart(5, "0");
       return timeA.localeCompare(timeB);
     });
@@ -80,12 +91,12 @@ export default function TodoList() {
   }, []);
 
   return (
-    <div className="bg-gray-100 rounded-lg p-6 max-w-md mx-auto text-black">
+    <div className={`bg-gray-100 rounded-lg p-6 max-w-md mx-auto text-black ${inter.className}`}>
       <div className="flex justify-between items-center p-4 mb-3 rounded-lg shadow-md">
         <h2 className="text-xl font-semibold">{dateInfo.date}</h2>
         <button
           onClick={() => setShowForm(!showForm)}
-          className="text-2xl text-blue-500 hover:text-blue-700"
+          className="text-4xl text-blue-500 hover:text-blue-700"
         >
           +
         </button>
@@ -123,28 +134,30 @@ export default function TodoList() {
         >
           <div>
             <div className="font-semibold text-lg text-black">{task.text}</div>
-            <div className="text-md text-black">Due: {task.due}</div>
+            <div className="text-md text-black">
+              Due: {formatTime12Hour(task.due)}
+            </div>
           </div>
 
-          <div className="flex items-center space-x-2">
+          <div className="flex items-center space-x-3">
             {/* Move Up */}
             <button
               onClick={() => moveTaskUp(index)}
-              className="text-lg text-gray-700 hover:text-black"
+              className="text-2xl text-gray-700 hover:text-black"
             >
               ↑
             </button>
             {/* Move Down */}
             <button
               onClick={() => moveTaskDown(index)}
-              className="text-lg text-gray-700 hover:text-black"
+              className="text-2xl text-gray-700 hover:text-black"
             >
               ↓
             </button>
             {/* Delete */}
             <button
               onClick={() => deleteTask(task._id!)}
-              className="text-xl text-red-500 hover:text-red-700"
+              className="text-3xl text-red-500 hover:text-red-700"
             >
               ×
             </button>
