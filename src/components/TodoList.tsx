@@ -19,10 +19,18 @@ export default function TodoList() {
   const [dueTime, setDueTime] = useState("");
   const [dateInfo, setDateInfo] = useState<DateInfo>({ date: "" });
 
+  const sortTasksByTime = (tasksArray: Task[]) => {
+    return [...tasksArray].sort((a, b) => {
+      const timeA = a.due.padStart(5, "0"); // Ensure consistent format
+      const timeB = b.due.padStart(5, "0");
+      return timeA.localeCompare(timeB);
+    });
+  };
+
   const fetchTasks = async () => {
     const res = await fetch("/api/tasks");
     const data = await res.json();
-    setTasks(data.tasks);
+    setTasks(sortTasksByTime(data.tasks));
   };
 
   const fetchDate = async () => {
@@ -39,7 +47,7 @@ export default function TodoList() {
       body: JSON.stringify({ text: newTask, due: dueTime }),
     });
     const data = await res.json();
-    setTasks([...tasks, data.task]);
+    setTasks(sortTasksByTime([...tasks, data.task]));
     setNewTask("");
     setDueTime("");
     setShowForm(false);
@@ -52,6 +60,20 @@ export default function TodoList() {
     setTasks(tasks.filter((task) => task._id !== id));
   };
 
+  const moveTaskUp = (index: number) => {
+    if (index === 0) return;
+    const updatedTasks = [...tasks];
+    [updatedTasks[index - 1], updatedTasks[index]] = [updatedTasks[index], updatedTasks[index - 1]];
+    setTasks(updatedTasks);
+  };
+
+  const moveTaskDown = (index: number) => {
+    if (index === tasks.length - 1) return;
+    const updatedTasks = [...tasks];
+    [updatedTasks[index + 1], updatedTasks[index]] = [updatedTasks[index], updatedTasks[index + 1]];
+    setTasks(updatedTasks);
+  };
+
   useEffect(() => {
     fetchTasks();
     fetchDate();
@@ -59,8 +81,8 @@ export default function TodoList() {
 
   return (
     <div className="bg-gray-100 rounded-lg p-6 max-w-md mx-auto text-black">
-      <div className="flex justify-between items-center mb-4">
-        <h2 className="text-xl font-semibold">Today’s Date: {dateInfo.date}</h2>
+      <div className="flex justify-between items-center p-4 mb-3 rounded-lg shadow-md">
+        <h2 className="text-xl font-semibold">{dateInfo.date}</h2>
         <button
           onClick={() => setShowForm(!showForm)}
           className="text-2xl text-blue-500 hover:text-blue-700"
@@ -93,22 +115,40 @@ export default function TodoList() {
         </div>
       )}
 
-      {tasks.map((task) => (
+      {tasks.map((task, index) => (
         <div
           key={task._id}
-          className="flex justify-between items-center p-3 mb-2 rounded text-white"
+          className="flex justify-between items-center p-3 mb-2 rounded"
           style={{ backgroundColor: task.color }}
         >
           <div>
-            <div className="font-medium">{task.text}</div>
-            <div className="text-sm">Due: {task.due}</div>
+            <div className="font-semibold text-lg text-black">{task.text}</div>
+            <div className="text-md text-black">Due: {task.due}</div>
           </div>
-          <button
-            onClick={() => deleteTask(task._id!)}
-            className="text-xl text-red-500 hover:text-red-700"
-          >
-            ×
-          </button>
+
+          <div className="flex items-center space-x-2">
+            {/* Move Up */}
+            <button
+              onClick={() => moveTaskUp(index)}
+              className="text-lg text-gray-700 hover:text-black"
+            >
+              ↑
+            </button>
+            {/* Move Down */}
+            <button
+              onClick={() => moveTaskDown(index)}
+              className="text-lg text-gray-700 hover:text-black"
+            >
+              ↓
+            </button>
+            {/* Delete */}
+            <button
+              onClick={() => deleteTask(task._id!)}
+              className="text-xl text-red-500 hover:text-red-700"
+            >
+              ×
+            </button>
+          </div>
         </div>
       ))}
     </div>

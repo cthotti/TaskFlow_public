@@ -14,7 +14,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   if (req.method === "POST") {
     const { text, due } = req.body;
 
-    const colors = ["#fde68a", "#bfdbfe", "#bbf7d0", "#fbcfe8", "#fcd34d"];
+    const colors = [
+  "#563263", "#B23E53", "#F14C55", "#FE6345","#FC7849"
+];
     const color = colors[Math.floor(Math.random() * colors.length)];
 
     const task = await Task.create({ text, due, color });
