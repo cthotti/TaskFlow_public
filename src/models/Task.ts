@@ -1,10 +1,22 @@
+import mongoose, { Schema, model, models } from "mongoose";
 
-import mongoose from "mongoose";
+export interface Task {
+  _id?: string;
+  text: string;
+  due?: string;
+  color?: string;
+  date?: string;
+  completed?: boolean;
+  carryOver?: boolean;
+}
 
-const TaskSchema = new mongoose.Schema({
+const TaskSchema = new Schema<Task>({
   text: { type: String, required: true },
-  due: { type: String, required: true },
-  color: { type: String, required: true },
+  due: { type: String },
+  color: { type: String },
+  date: { type: String },
+  completed: { type: Boolean, default: false },
+  carryOver: { type: Boolean, default: false }
 });
 
-export default mongoose.models.Task || mongoose.model("Task", TaskSchema);
+export default models.Task || model<Task>("Task", TaskSchema);
