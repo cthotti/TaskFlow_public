@@ -96,31 +96,45 @@ export default function TodoList() {
     fetchDate();
   }, []);
 
-  const renderTask = (
-    task: Task,
-    index: number,
-    tasks: Task[],
-    setTasks: any,
-    extraButtons?: React.ReactNode
-  ) => (
-    <div
-      key={task._id}
-      className={`${inter.className} flex justify-between items-center p-4 mb-3 rounded-lg border border-gray-300 shadow-md`}
-      style={{
-        backgroundColor: task.color || pastelColors[Math.floor(Math.random() * pastelColors.length)],
-      }}
-    >
-      <div className="flex flex-col">
-        <span className="font-semibold text-lg">{task.text}</span>
-        {task.due && <span className="text-md">{formatTime(task.due)}</span>}
-      </div>
-      <div className="flex items-center space-x-3">
-        <button onClick={() => moveTask(tasks, setTasks, index, "up")} className="text-3xl">↑</button>
-        <button onClick={() => moveTask(tasks, setTasks, index, "down")} className="text-3xl">↓</button>
-        {extraButtons}
-      </div>
+/*const render task*/
+
+const renderTask = (
+  task: Task,
+  index: number,
+  tasks: Task[],
+  setTasks: any,
+  extraButtons?: React.ReactNode
+) => (
+  <div
+    key={task._id}
+    className={`${inter.className} flex justify-between items-center p-4 mb-3 rounded-lg border border-gray-300 shadow-md`}
+    style={{
+      backgroundColor:
+        task.color || pastelColors[Math.floor(Math.random() * pastelColors.length)],
+      color: "black", // text color for all content inside
+    }}
+  >
+    <div className="flex flex-col">
+      <span className="font-semibold text-lg">{task.text}</span>
+      {task.due && <span className="text-md">{formatTime(task.due)}</span>}
     </div>
-  );
+    <div className="flex items-center space-x-3">
+      <button
+        onClick={() => moveTask(tasks, setTasks, index, "up")}
+        className="text-3xl text-black"
+      >
+        ↑
+      </button>
+      <button
+        onClick={() => moveTask(tasks, setTasks, index, "down")}
+        className="text-3xl text-black"
+      >
+        ↓
+      </button>
+      {extraButtons}
+    </div>
+  </div>
+);
 
   const formatTime = (time: string) => {
     const [hour, minute] = time.split(":").map(Number);
