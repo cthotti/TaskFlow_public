@@ -147,11 +147,11 @@ const renderTask = (
     <div className={`${inter.className} grid grid-cols-3 gap-6 p-6`}>
       {/* Carry Over */}
       <div className="bg-gray-50 rounded-lg p-6 border border-gray-300 shadow-lg">
-        <h2 className="text-xl font-bold mb-4">Carry Over</h2>
+        <h2 className="text-xl font-bold mb-4 text-black">Carry Over</h2>
         {carryOverTasks.map((t, i) =>
           renderTask(t, i, carryOverTasks, setCarryOverTasks, (
             <>
-              <button onClick={() => addToToday(t._id!)} className="bg-blue-500 text-white px-3 py-1 rounded-lg">Add</button>
+              <button onClick={() => addToToday(t._id!)} className="bg-blue-500 text-black px-3 py-1 rounded-lg">Add</button>
               <button onClick={() => deleteTask(t._id!)} className="text-3xl text-red-500">×</button>
             </>
           ))
@@ -161,7 +161,7 @@ const renderTask = (
       {/* Today */}
       <div className="bg-gray-50 rounded-lg p-6 border border-gray-300 shadow-lg">
         <div className="flex justify-between items-center mb-4">
-          <h2 className="text-xl font-bold">{dateInfo.date}</h2>
+          <h2 className="text-xl font-bold text-black">{dateInfo.date}</h2>
           <button onClick={() => setShowForm(!showForm)} className="text-4xl text-blue-600">+</button>
         </div>
         {showForm && (
@@ -199,7 +199,7 @@ const renderTask = (
 
       {/* Completed */}
       <div className="bg-gray-50 rounded-lg p-6 border border-gray-300 shadow-lg">
-        <h2 className="text-xl font-bold mb-4">Completed</h2>
+        <h2 className="text-xl font-bold mb-4 text-black">Completed</h2>
         {completedTasks.map((t, i) =>
           renderTask(t, i, completedTasks, setCompletedTasks, (
             <button onClick={() => deleteTask(t._id!)} className="text-3xl text-red-500">×</button>
