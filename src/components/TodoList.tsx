@@ -1,4 +1,3 @@
-// src/components/TodoList.tsx
 "use client";
 import React, { useEffect, useState } from "react";
 import { Inter } from "next/font/google";
@@ -31,29 +30,22 @@ export default function TodoList() {
     "#D5AAFF", "#FFFACD", "#C1F0F6", "#FFB3BA", "#BAFFC9"
   ];
 
-  // Safe fetchTasks: support multiple possible API response keys
   const fetchTasks = async () => {
     try {
       const res = await fetch("/api/tasks");
       const data = await res.json();
-
-      // Accept multiple possible shapes (robustness)
-      const today = data.today ?? data.todayTasks ?? data.todayTasks ?? data.todayTasksList ?? [];
-      const carryOver = data.carryOver ?? data.carryOverTasks ?? data.carryover ?? [];
-      const completed = data.completed ?? data.completedTasks ?? data.done ?? [];
+      const today = data.today ?? [];
+      const carryOver = data.carryOver ?? [];
+      const completed = data.completed ?? [];
 
       setTodayTasks(Array.isArray(today) ? today : []);
       setCarryOverTasks(Array.isArray(carryOver) ? carryOver : []);
       setCompletedTasks(Array.isArray(completed) ? completed : []);
     } catch (err) {
       console.error("Failed to fetch tasks:", err);
-      setTodayTasks([]);
-      setCarryOverTasks([]);
-      setCompletedTasks([]);
     }
   };
 
-  // Try python backend /date, fallback to client date
   const fetchDate = async () => {
     try {
       if (process.env.NEXT_PUBLIC_API_URL) {
@@ -64,16 +56,13 @@ export default function TodoList() {
           return;
         }
       }
-    } catch (err) {
-      console.warn("Date endpoint not reachable, falling back to local date.");
-    }
+    } catch {}
     setDateInfo({ date: formatLocalDate(new Date()) });
   };
 
   const formatLocalDate = (d: Date) =>
     d.toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" });
 
-  // Sort helper (sort HH:MM strings)
   const sortByTime = (arr: Task[]) =>
     [...arr].sort((a, b) => (a.due ?? "").localeCompare(b.due ?? ""));
 
@@ -97,69 +86,48 @@ export default function TodoList() {
   };
 
   const deleteTask = async (id: string) => {
-    try {
-      await fetch(`/api/tasks/${id}`, { method: "DELETE" });
-      setTodayTasks(prev => prev.filter(t => t._id !== id));
-      setCarryOverTasks(prev => prev.filter(t => t._id !== id));
-      setCompletedTasks(prev => prev.filter(t => t._id !== id));
-    } catch (err) {
-      console.error("Delete failed:", err);
-    }
+    await fetch(`/api/tasks/${id}`, { method: "DELETE" });
+    setTodayTasks(prev => prev.filter(t => t._id !== id));
+    setCarryOverTasks(prev => prev.filter(t => t._id !== id));
+    setCompletedTasks(prev => prev.filter(t => t._id !== id));
   };
 
-  // markComplete: PATCH and update UI optimistically
   const markComplete = async (id: string) => {
-    try {
-      const res = await fetch(`/api/tasks/${id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ completed: true }),
-      });
-      const data = await res.json();
-      const updated: Task | undefined = data.task ?? data;
-      // remove from today and add to completed
-      setTodayTasks(prev => prev.filter(t => t._id !== id));
-      if (updated) setCompletedTasks(prev => [updated, ...prev]);
-      else {
-        // fallback: refetch
-        fetchTasks();
-      }
-    } catch (err) {
-      console.error("Mark complete failed:", err);
-      fetchTasks();
-    }
+    await fetch(`/api/tasks/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ completed: true }),
+    });
+    setTodayTasks(prev => prev.filter(t => t._id !== id));
+    setCompletedTasks(prev => prev.filter(t => t._id !== id));
+    fetchTasks();
   };
 
-  // Move carry-over to today
   const addToToday = async (id: string) => {
-    try {
-      const todayStr = new Date().toISOString().split("T")[0];
-      const res = await fetch(`/api/tasks/${id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ carryOver: false, date: todayStr }),
-      });
-      const data = await res.json();
-      const updated: Task | undefined = data.task ?? data;
-      setCarryOverTasks(prev => prev.filter(t => t._id !== id));
-      if (updated) setTodayTasks(prev => sortByTime([...prev, updated]));
-      else fetchTasks();
-    } catch (err) {
-      console.error("Add to today failed:", err);
-      fetchTasks();
-    }
+    const todayStr = new Date().toISOString().split("T")[0];
+    await fetch(`/api/tasks/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ carryOver: false, date: todayStr }),
+    });
+    fetchTasks();
   };
 
-  // Move up/down locally (UI only)
-  const moveTask = (listSetter: (v: Task[]) => void, arr: Task[], index: number, dir: "up" | "down") => {
+  const moveTask = (setArr: (v: Task[]) => void, arr: Task[], index: number, dir: "up" | "down") => {
     const updated = [...arr];
     const swapIndex = dir === "up" ? index - 1 : index + 1;
     if (swapIndex < 0 || swapIndex >= arr.length) return;
     [updated[index], updated[swapIndex]] = [updated[swapIndex], updated[index]];
-    listSetter(updated);
+    setArr(updated);
+  };
+
+  const clearOldCompleted = async () => {
+    const todayStr = new Date().toISOString().split("T")[0];
+    await fetch(`/api/tasks/clearCompleted?date=${todayStr}`, { method: "DELETE" });
   };
 
   useEffect(() => {
+    clearOldCompleted();
     fetchTasks();
     fetchDate();
   }, []);
@@ -172,7 +140,6 @@ export default function TodoList() {
     return `${hour12}:${mm.toString().padStart(2, "0")} ${ampm}`;
   };
 
-  // Render single task
   const renderTask = (
     task: Task,
     index: number,
@@ -184,30 +151,16 @@ export default function TodoList() {
     return (
       <div
         key={task._id}
-        className={`${inter.className} flex justify-between items-center p-5 mb-4 rounded-lg border border-gray-300 shadow-sm`}
+        className="flex justify-between items-center p-3 mb-3 rounded-md border border-gray-300 shadow-sm w-[250px]"
         style={{ backgroundColor: bg, color: "black" }}
       >
         <div>
-          <div className="font-semibold text-lg">{task.text}</div>
-          {task.due && <div className="text-sm mt-1">Due: {formatTime(task.due)}</div>}
+          <div className="font-semibold text-base">{task.text}</div>
+          {task.due && <div className="text-xs mt-1">Due: {formatTime(task.due)}</div>}
         </div>
-
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => moveTask(setArr, arr, index, "up")}
-            className="text-2xl font-bold text-black"
-            aria-label="move up"
-          >
-            ↑
-          </button>
-          <button
-            onClick={() => moveTask(setArr, arr, index, "down")}
-            className="text-2xl font-bold text-black"
-            aria-label="move down"
-          >
-            ↓
-          </button>
-
+        <div className="flex items-center gap-2">
+          <button onClick={() => moveTask(setArr, arr, index, "up")} className="text-lg">↑</button>
+          <button onClick={() => moveTask(setArr, arr, index, "down")} className="text-lg">↓</button>
           {extras}
         </div>
       </div>
@@ -215,87 +168,56 @@ export default function TodoList() {
   };
 
   return (
-    <div className={`${inter.className} grid grid-cols-1 md:grid-cols-[1fr_1.6fr_1fr] gap-6 p-6 bg-gray-50 min-h-[60vh]`}>
-      {/* Left: Carry Over */}
-      <section className="bg-white rounded-lg p-6 border border-gray-200 shadow-md h-auto">
+    <div className={`${inter.className} flex gap-6 p-6 bg-gray-50`}>
+      {/* Carry Over */}
+      <section>
         <h3 className="text-lg font-bold mb-4 text-center">Carry Over</h3>
-        {(carryOverTasks ?? []).length === 0 && <p className="text-sm text-gray-500">No carry-over tasks</p>}
         {(carryOverTasks ?? []).map((t, i) =>
-          renderTask(
-            t,
-            i,
-            carryOverTasks,
-            setCarryOverTasks,
-            <>
-              <button
-                onClick={() => addToToday(t._id!)}
-                className="bg-green-600 text-white px-3 py-1 rounded-md"
-              >
-                Add
-              </button>
-              <button onClick={() => deleteTask(t._id!)} className="text-2xl text-red-600">×</button>
-            </>
-          )
+          renderTask(t, i, carryOverTasks, setCarryOverTasks, <>
+            <button onClick={() => addToToday(t._id!)} className="bg-green-600 text-white px-2 py-1 rounded-md">Add</button>
+            <button onClick={() => deleteTask(t._id!)} className="text-lg text-red-600">×</button>
+          </>)
         )}
       </section>
 
-      {/* Middle: Today (wider) */}
-      <main className="bg-white rounded-lg p-6 border border-gray-200 shadow-md h-auto">
+      {/* Today */}
+      <main>
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-xl font-bold">{dateInfo.date || formatLocalDate(new Date())}</h2>
-          <button onClick={() => setShowForm(s => !s)} className="text-4xl text-blue-600">+</button>
+          <h2 className="text-xl font-bold">{dateInfo.date}</h2>
+          <button onClick={() => setShowForm(s => !s)} className="text-3xl text-blue-600">+</button>
         </div>
-
         {showForm && (
-          <div className="mb-4 space-y-3">
+          <div className="mb-3 space-y-2">
             <input
               type="text"
               placeholder="Task"
               value={newTask}
               onChange={e => setNewTask(e.target.value)}
-              className="w-full p-3 border rounded bg-white text-black"
+              className="w-full p-2 border rounded bg-white text-black"
             />
             <input
               type="time"
               value={dueTime}
               onChange={e => setDueTime(e.target.value)}
-              className="w-full p-3 border rounded bg-white text-black"
+              className="w-full p-2 border rounded bg-white text-black"
             />
-            <button onClick={addTask} className="w-full bg-blue-600 text-white p-3 rounded-md">Add Task</button>
+            <button onClick={addTask} className="w-full bg-blue-600 text-white p-2 rounded-md">Add Task</button>
           </div>
         )}
-
-        {(todayTasks ?? []).length === 0 && <p className="text-sm text-gray-500">No tasks for today</p>}
         {(todayTasks ?? []).map((t, i) =>
-          renderTask(
-            t,
-            i,
-            todayTasks,
-            setTodayTasks,
-            <>
-              <input
-                type="checkbox"
-                className="w-6 h-6"
-                onChange={() => markComplete(t._id!)}
-                aria-label="mark complete"
-              />
-              <button onClick={() => deleteTask(t._id!)} className="text-2xl text-red-600">×</button>
-            </>
-          )
+          renderTask(t, i, todayTasks, setTodayTasks, <>
+            <input type="checkbox" onChange={() => markComplete(t._id!)} />
+            <button onClick={() => deleteTask(t._id!)} className="text-lg text-red-600">×</button>
+          </>)
         )}
       </main>
 
-      {/* Right: Completed */}
-      <section className="bg-white rounded-lg p-6 border border-gray-200 shadow-md h-auto">
+      {/* Completed */}
+      <section>
         <h3 className="text-lg font-bold mb-4 text-center">Completed</h3>
-        {(completedTasks ?? []).length === 0 && <p className="text-sm text-gray-500">No completed tasks</p>}
         {(completedTasks ?? []).map((t, i) =>
-          renderTask(
-            t,
-            i,
-            completedTasks,
-            setCompletedTasks,
-            <button onClick={() => deleteTask(t._id!)} className="text-2xl text-red-600">×</button>
+          renderTask(t, i, completedTasks, setCompletedTasks,
+            <button onClick={() => deleteTask(t._id!)} className="text-lg text-red-600">×</button>
           )
         )}
       </section>
