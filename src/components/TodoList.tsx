@@ -144,26 +144,38 @@ const renderTask = (
   };
 
   return (
-    <div className={`${inter.className} grid grid-cols-3 gap-6 p-6`}>
-      {/* Carry Over */}
-      <div className="bg-gray-50 rounded-lg p-6 border border-gray-300 shadow-lg">
-        <h2 className="text-xl font-bold mb-4 text-black">Carry Over</h2>
-        {carryOverTasks.map((t, i) =>
-          renderTask(t, i, carryOverTasks, setCarryOverTasks, (
-            <>
-              <button onClick={() => addToToday(t._id!)} className="bg-blue-500 text-black px-3 py-1 rounded-lg">Add</button>
-              <button onClick={() => deleteTask(t._id!)} className="text-3xl text-red-500">×</button>
-            </>
-          ))
-        )}
+    <div className="grid grid-cols-3 gap-6 p-6 bg-gray-900 min-h-screen">
+      {/* Carry Over Tasks */}
+      <div className="bg-gray-100 rounded-lg p-6 shadow-lg border border-gray-300">
+        <h2 className="text-xl font-bold mb-4 text-black text-center">Carry Over</h2>
+        {carryOverTasks.map((task) => (
+          <div
+            key={task._id}
+            className="flex justify-between items-center p-4 mb-2 rounded text-black border border-gray-400"
+            style={{ backgroundColor: task.color }}
+          >
+            <span>{task.text}</span>
+            <div className="flex gap-2">
+              <button onClick={() => deleteTask(task._id!)} className="text-red-500 font-bold">
+                ×
+              </button>
+            </div>
+          </div>
+        ))}
       </div>
 
-      {/* Today */}
-      <div className="bg-gray-50 rounded-lg p-6 border border-gray-300 shadow-lg">
-        <div className="flex justify-between items-center mb-4">
-          <h2 className="text-xl font-bold text-black">{dateInfo.date}</h2>
-          <button onClick={() => setShowForm(!showForm)} className="text-4xl text-blue-600">+</button>
+      {/* Today Tasks */}
+      <div className="bg-gray-100 rounded-lg p-6 shadow-lg border border-gray-300">
+        <div className="flex justify-between mb-4">
+          <h2 className="text-xl font-bold text-black">Today</h2>
+          <button
+            onClick={() => setShowForm(!showForm)}
+            className="text-3xl text-blue-500 hover:text-blue-700"
+          >
+            +
+          </button>
         </div>
+
         {showForm && (
           <div className="mb-4 space-y-2">
             <input
@@ -171,13 +183,13 @@ const renderTask = (
               placeholder="Task"
               value={newTask}
               onChange={(e) => setNewTask(e.target.value)}
-              className="w-full p-2 border rounded"
+              className="w-full p-2 border rounded bg-white text-black"
             />
             <input
               type="time"
               value={dueTime}
               onChange={(e) => setDueTime(e.target.value)}
-              className="w-full p-2 border rounded"
+              className="w-full p-2 border rounded bg-white text-black"
             />
             <button
               onClick={addTask}
@@ -199,7 +211,7 @@ const renderTask = (
 
       {/* Completed */}
       <div className="bg-gray-50 rounded-lg p-6 border border-gray-300 shadow-lg">
-        <h2 className="text-xl font-bold mb-4 text-black">Completed</h2>
+        <h2 className="text-xl font-bold mb-4 text-black text-center">Completed</h2>
         {completedTasks.map((t, i) =>
           renderTask(t, i, completedTasks, setCompletedTasks, (
             <button onClick={() => deleteTask(t._id!)} className="text-3xl text-red-500">×</button>

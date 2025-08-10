@@ -1,32 +1,50 @@
-import type { NextApiRequest, NextApiResponse } from "next";
+// src/pages/api/tasks/index.ts
+import { NextApiRequest, NextApiResponse } from "next";
 import connectDB from "@/lib/db";
-import Task from "models/Task";
+import Task from "@/models/Task";
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   await connectDB();
 
   if (req.method === "GET") {
-    const today = new Date().toISOString().split("T")[0];
-    const tasks = await Task.find({});
+    try {
+      const today = new Date();
+      const yesterday = new Date(today);
+      yesterday.setDate(today.getDate() - 1);
 
-    const todayTasks = tasks.filter(t => !t.completed && !t.carryOver && t.date === today);
-    const carryOverTasks = tasks.filter(t => !t.completed && t.carryOver);
-    const completedTasks = tasks.filter(t => t.completed);
+      // Format dates for comparison
+      const formatDate = (d: Date) => d.toISOString().split("T")[0];
 
-    return res.status(200).json({
-      today: todayTasks,
-      carryOver: carryOverTasks,
-      completed: completedTasks
-    });
+      // Fetch today's tasks
+      const todayTasks = await Task.find({ date: formatDate(today) });
+
+      // Fetch yesterday's tasks that are not completed
+      const carryOverTasks = await Task.find({
+        date: formatDate(yesterday),
+        completed: false,
+      });
+
+      // Fetch completed tasks (from today and yesterday)
+      const completedTasks = await Task.find({
+        completed: true,
+        date: { $in: [formatDate(today), formatDate(yesterday)] },
+      });
+
+      return res.status(200).json({
+        todayTasks,
+        carryOverTasks,
+        completedTasks,
+      });
+    } catch (error) {
+      return res.status(500).json({ error: "Failed to fetch tasks" });
+    }
   }
 
   if (req.method === "POST") {
     const { text, due } = req.body;
-    const colors = [
-      "#fde68a", "#bfdbfe", "#bbf7d0", "#fbcfe8", "#fcd34d",
-      "#d1fae5", "#e0f2fe", "#fef9c3", "#fee2e2", "#ede9fe"
-    ];
+    const colors = ["#fef3c7", "#dbeafe", "#dcfce7", "#fde2e2", "#fbcfe8"];
     const color = colors[Math.floor(Math.random() * colors.length)];
+
     const today = new Date().toISOString().split("T")[0];
 
     const task = await Task.create({
@@ -35,7 +53,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       color,
       date: today,
       completed: false,
-      carryOver: false
     });
 
     return res.status(201).json({ task });
