@@ -33,9 +33,9 @@ export default function TodoList() {
   const fetchTasks = async () => {
     const res = await fetch("/api/tasks");
     const data = await res.json();
-    setTodayTasks(data.today);
-    setCarryOverTasks(data.carryOver);
-    setCompletedTasks(data.completed);
+    setTodayTasks(data.today || []);
+    setCarryOverTasks(data.carryOver || []);
+    setCompletedTasks(data.completed || []);
   };
 
   const fetchDate = async () => {
@@ -96,46 +96,6 @@ export default function TodoList() {
     fetchDate();
   }, []);
 
-/*const render task*/
-
-const renderTask = (
-  task: Task,
-  index: number,
-  tasks: Task[],
-  setTasks: any,
-  extraButtons?: React.ReactNode
-) => (
-  <div
-    key={task._id}
-    className={`${inter.className} flex justify-between items-center p-4 mb-3 rounded-lg border border-gray-300 shadow-md`}
-    style={{
-      backgroundColor:
-        task.color || pastelColors[Math.floor(Math.random() * pastelColors.length)],
-      color: "black", // text color for all content inside
-    }}
-  >
-    <div className="flex flex-col">
-      <span className="font-semibold text-lg">{task.text}</span>
-      {task.due && <span className="text-md">{formatTime(task.due)}</span>}
-    </div>
-    <div className="flex items-center space-x-3">
-      <button
-        onClick={() => moveTask(tasks, setTasks, index, "up")}
-        className="text-3xl text-black"
-      >
-        ↑
-      </button>
-      <button
-        onClick={() => moveTask(tasks, setTasks, index, "down")}
-        className="text-3xl text-black"
-      >
-        ↓
-      </button>
-      {extraButtons}
-    </div>
-  </div>
-);
-
   const formatTime = (time: string) => {
     const [hour, minute] = time.split(":").map(Number);
     const ampm = hour >= 12 ? "PM" : "AM";
@@ -143,29 +103,67 @@ const renderTask = (
     return `${hour12}:${minute.toString().padStart(2, "0")} ${ampm}`;
   };
 
+  const renderTask = (
+    task: Task,
+    index: number,
+    tasks: Task[],
+    setTasks: any,
+    extraButtons?: React.ReactNode
+  ) => (
+    <div
+      key={task._id}
+      className={`${inter.className} flex justify-between items-center p-4 mb-3 rounded-lg border border-gray-300 shadow-md`}
+      style={{
+        backgroundColor:
+          task.color || pastelColors[Math.floor(Math.random() * pastelColors.length)],
+        color: "black",
+      }}
+    >
+      <div className="flex flex-col">
+        <span className="font-semibold text-lg">{task.text}</span>
+        {task.due && <span className="text-md">{formatTime(task.due)}</span>}
+      </div>
+      <div className="flex items-center space-x-3">
+        <button
+          onClick={() => moveTask(tasks, setTasks, index, "up")}
+          className="text-3xl text-black"
+        >
+          ↑
+        </button>
+        <button
+          onClick={() => moveTask(tasks, setTasks, index, "down")}
+          className="text-3xl text-black"
+        >
+          ↓
+        </button>
+        {extraButtons}
+      </div>
+    </div>
+  );
+
   return (
-    <div className="grid grid-cols-3 gap-6 p-6 bg-gray-900 min-h-screen">
+    <div className="grid grid-cols-1 md:grid-cols-3 gap-6 p-6 bg-gray-900">
+      
       {/* Carry Over Tasks */}
-      <div className="bg-gray-100 rounded-lg p-6 shadow-lg border border-gray-300">
+      <div className="bg-gray-100 rounded-lg p-6 shadow-lg border border-gray-300 h-auto">
         <h2 className="text-xl font-bold mb-4 text-black text-center">Carry Over</h2>
-        {carryOverTasks.map((task) => (
-          <div
-            key={task._id}
-            className="flex justify-between items-center p-4 mb-2 rounded text-black border border-gray-400"
-            style={{ backgroundColor: task.color }}
-          >
-            <span>{task.text}</span>
-            <div className="flex gap-2">
-              <button onClick={() => deleteTask(task._id!)} className="text-red-500 font-bold">
-                ×
+        {carryOverTasks?.map((task, i) =>
+          renderTask(task, i, carryOverTasks, setCarryOverTasks, (
+            <>
+              <button
+                onClick={() => addToToday(task._id!)}
+                className="bg-green-500 text-white px-3 py-1 rounded"
+              >
+                Add
               </button>
-            </div>
-          </div>
-        ))}
+              <button onClick={() => deleteTask(task._id!)} className="text-3xl text-red-500">×</button>
+            </>
+          ))
+        )}
       </div>
 
       {/* Today Tasks */}
-      <div className="bg-gray-100 rounded-lg p-6 shadow-lg border border-gray-300">
+      <div className="bg-gray-100 rounded-lg p-6 shadow-lg border border-gray-300 h-auto">
         <div className="flex justify-between mb-4">
           <h2 className="text-xl font-bold text-black">Today</h2>
           <button
@@ -199,7 +197,7 @@ const renderTask = (
             </button>
           </div>
         )}
-        {todayTasks.map((t, i) =>
+        {todayTasks?.map((t, i) =>
           renderTask(t, i, todayTasks, setTodayTasks, (
             <>
               <input type="checkbox" onChange={() => markComplete(t._id!)} className="w-6 h-6" />
@@ -210,9 +208,9 @@ const renderTask = (
       </div>
 
       {/* Completed */}
-      <div className="bg-gray-50 rounded-lg p-6 border border-gray-300 shadow-lg">
+      <div className="bg-gray-50 rounded-lg p-6 border border-gray-300 shadow-lg h-auto">
         <h2 className="text-xl font-bold mb-4 text-black text-center">Completed</h2>
-        {completedTasks.map((t, i) =>
+        {completedTasks?.map((t, i) =>
           renderTask(t, i, completedTasks, setCompletedTasks, (
             <button onClick={() => deleteTask(t._id!)} className="text-3xl text-red-500">×</button>
           ))
