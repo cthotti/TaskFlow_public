@@ -297,78 +297,79 @@ export default function TodoList() {
   };
 
   // outer grid - NOTE: items-start so column heights are independent.
-  return (
-    <div className={`${inter.className} grid grid-cols-1 md:grid-cols-[220px_1fr_220px] gap-6 p-6 items-start`}>
-      {/* Left: Carry Over */}
-      <section>
+    return (
+    <div className={`${inter.className} grid grid-cols-1 md:grid-cols-3 gap-6 p-6 items-start`}>
+        
+        {/* Carry Over */}
+        <section className="bg-white rounded-lg p-6 border border-gray-300 shadow-md">
         <h3 className="text-lg font-bold mb-4 text-center text-black">Carry Over</h3>
         {(carryOverTasks ?? []).length === 0 ? (
-          <p className="text-sm text-gray-500 text-center">No carry-over tasks</p>
+            <p className="text-sm text-gray-500 text-center">No carry-over tasks</p>
         ) : (
-          carryOverTasks.map((t, i) =>
+            carryOverTasks.map((t, i) =>
             renderTask(t, i, carryOverTasks, setCarryOverTasks, (
-              <>
+                <>
                 <button onClick={() => addToToday(t._id!)} className="bg-green-600 text-white px-2 py-1 rounded-md text-sm">Add</button>
                 <button onClick={() => deleteTask(t._id!)} className="text-lg text-red-600">×</button>
-              </>
+                </>
             ))
-          )
+            )
         )}
-      </section>
+        </section>
 
-      {/* Middle: Today (wider) */}
-      <main>
+        {/* Today */}
+        <main className="bg-white rounded-lg p-6 border border-gray-300 shadow-md">
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-xl font-bold text-black">{dateInfo.date || formatLocalDate(new Date())}</h2>
-          <button onClick={() => setShowForm(s => !s)} className="text-3xl text-blue-600">+</button>
+            <h2 className="text-xl font-bold text-black">{dateInfo.date || formatLocalDate(new Date())}</h2>
+            <button onClick={() => setShowForm(s => !s)} className="text-3xl text-blue-600">+</button>
         </div>
 
         {showForm && (
-          <div className="mb-3 space-y-2">
+            <div className="mb-3 space-y-2">
             <input
-              type="text"
-              placeholder="Task"
-              value={newTask}
-              onChange={e => setNewTask(e.target.value)}
-              className="w-full p-2 border rounded bg-white text-black"
+                type="text"
+                placeholder="Task"
+                value={newTask}
+                onChange={e => setNewTask(e.target.value)}
+                className="w-full p-2 border rounded bg-white text-black"
             />
             <input
-              type="time"
-              value={dueTime}
-              onChange={e => setDueTime(e.target.value)}
-              className="w-full p-2 border rounded bg-white text-black"
+                type="time"
+                value={dueTime}
+                onChange={e => setDueTime(e.target.value)}
+                className="w-full p-2 border rounded bg-white text-black"
             />
             <button onClick={addTask} className="w-full bg-blue-600 text-white p-2 rounded-md">Add Task</button>
-          </div>
+            </div>
         )}
 
         {(todayTasks ?? []).length === 0 ? (
-          <p className="text-sm text-gray-500">No tasks for today</p>
+            <p className="text-sm text-gray-500">No tasks for today</p>
         ) : (
-          todayTasks.map((t, i) =>
+            todayTasks.map((t, i) =>
             renderTask(t, i, todayTasks, setTodayTasks, (
-              <>
+                <>
                 <input type="checkbox" onChange={() => markComplete(t._id!)} aria-label="complete" />
                 <button onClick={() => deleteTask(t._id!)} className="text-lg text-red-600">×</button>
-              </>
+                </>
             ))
-          )
+            )
         )}
-      </main>
+        </main>
 
-      {/* Right: Completed */}
-      <section>
+        {/* Completed */}
+        <section className="bg-white rounded-lg p-6 border border-gray-300 shadow-md">
         <h3 className="text-lg font-bold mb-4 text-center text-black">Completed</h3>
         {(completedTasks ?? []).length === 0 ? (
-          <p className="text-sm text-gray-500 text-center">No completed tasks</p>
+            <p className="text-sm text-gray-500 text-center">No completed tasks</p>
         ) : (
-          completedTasks.map((t, i) =>
+            completedTasks.map((t, i) =>
             renderTask(t, i, completedTasks, setCompletedTasks, (
-              <button onClick={() => deleteTask(t._id!)} className="text-lg text-red-600">×</button>
+                <button onClick={() => deleteTask(t._id!)} className="text-lg text-red-600">×</button>
             ))
-          )
+            )
         )}
-      </section>
+        </section>
     </div>
-  );
+    );
 }
