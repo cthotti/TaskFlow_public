@@ -366,28 +366,27 @@ const renderTask = (
       style={{ backgroundColor: bg, color: "black" }}
     >
       <div className="flex-1">
+        {/* Task Name */}
         <input
-          type="text"
-          value={task.text}
-          onChange={(e) => updateField("text", e.target.value)}
-          onKeyDown={(e) => handleKeyDown(e, "text")}
-          className="font-semibold text-base text-black w-11/12 bg-transparent outline-none"
-          placeholder="Task name"
+            type="text"
+            value={task.text}
+            onChange={(e) => updateField("text", e.target.value)}
+            onKeyDown={(e) => handleKeyDown(e, "text")}
+            className="font-semibold text-base text-black w-11/12 bg-transparent outline-none"
+            placeholder="Task name"
         />
-        <textarea
-          value={task.description || ""}
-          onChange={(e) => updateField("description", e.target.value)}
-          onKeyDown={(e) => handleKeyDown(e, "description")}
-          className="text-sm mt-1 text-black whitespace-pre-line w-11/12 bg-transparent outline-none"
-          placeholder="More info..."
-          rows={2}
+
+        {/* Task Description (single line input instead of textarea) */}
+        <input
+            type="text"
+            value={task.description || ""}
+            onChange={(e) => updateField("description", e.target.value)}
+            onKeyDown={(e) => handleKeyDown(e, "description")}
+            className="text-sm mt-1 text-black w-11/12 bg-transparent outline-none"
+            placeholder="More info..."
         />
-        {task.due && (
-          <div className="text-xs mt-1 text-black">
-            Due: {formatTime(task.due)}
-          </div>
-        )}
-      </div>
+        </div>
+
       <div className="flex items-center gap-2 ml-2">
         <button onClick={() => moveTask(setArr, arr, idx, "up")} className="text-lg text-black">↑</button>
         <button onClick={() => moveTask(setArr, arr, idx, "down")} className="text-lg text-black">↓</button>
