@@ -335,39 +335,39 @@ const renderTask = (
       <div className="flex-1">
         {/* Task Name Input */}
         <input
-          type="text"
-          value={task.text}
-          onChange={(e) => updateField("text", e.target.value)}
-          onKeyDown={(e) => {
+        type="text"
+        value={task.text}
+        onChange={(e) => updateField("text", e.target.value)}
+        onKeyDown={(e) => {
             if (e.key === "+" && e.code === "Enter") {
-              e.preventDefault();
-              handleAddNewTask();
+            e.preventDefault();
+            handleAddNewTask();
             } else if (e.key === "Enter" && !e.shiftKey) {
-              e.preventDefault();
-              handleSubmitTask();
+            e.preventDefault();
+            handleSubmitTask();
             }
-          }}
-          className="font-semibold text-base text-black w-full bg-transparent outline-none"
-          placeholder="Task name"
+        }}
+        className="font-semibold text-base text-black w-11/12 bg-transparent outline-none"
+        placeholder="Task name"
         />
 
-        {/* ✅ Description textarea with Shift+Enter for new line */}
+        {/* ✅ Description textarea with Shift+Enter for new line */}      
         <textarea
-          value={task.description || ""}
-          onChange={(e) => updateField("description", e.target.value)}
-          onKeyDown={(e) => {
+        value={task.description || ""}
+        onChange={(e) => updateField("description", e.target.value)}
+        onKeyDown={(e) => {
             if (e.key === "Enter" && e.shiftKey) {
-              // Allow newline
-              return;
+            // Allow newline
+            return;
             }
             if (e.key === "Enter" && !e.shiftKey) {
-              e.preventDefault();
-              handleSubmitTask();
+            e.preventDefault();
+            handleSubmitTask();
             }
-          }}
-          className="text-sm mt-1 text-black whitespace-pre-line w-full bg-transparent outline-none"
-          placeholder="More info..."
-          rows={2}
+        }}
+        className="text-sm mt-1 text-black whitespace-pre-line w-11/12 bg-transparent outline-none"
+        placeholder="More info..."
+        rows={2}
         />
 
         {task.due && (
@@ -431,30 +431,46 @@ const renderTask = (
         </div>
 
         {showForm && (
-            <div className="mb-3 space-y-2">
+        <div className="mb-3 space-y-2">
             <input
-                type="text"
-                placeholder="Task"
-                value={newTask}
-                onChange={e => setNewTask(e.target.value)}
-                className="w-full p-2 border rounded bg-white text-black"
+            type="text"
+            placeholder="Task"
+            value={newTask}
+            onChange={e => setNewTask(e.target.value)}
+            className="w-11/12 p-2 border rounded bg-white text-black"
+            />
+            <textarea
+            placeholder="More Info"
+            value={newDescription}
+            onChange={e => setNewDescription(e.target.value)}
+            onKeyDown={(e) => {
+                if (e.key === "Enter" && e.shiftKey) {
+                // Allow newline
+                return;
+                }
+                if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                addTask();
+                }
+            }}
+            className="w-11/12 p-2 border rounded bg-white text-black whitespace-pre-line"
+            rows={2}
             />
             <input
-                type="text"
-                placeholder="More Info"
-                value={newDescription}
-                onChange={e => setNewDescription(e.target.value)}
-                className="w-full p-2 border rounded bg-white text-black"
+            type="time"
+            value={dueTime}
+            onChange={e => setDueTime(e.target.value)}
+            className="w-11/12 p-2 border rounded bg-white text-black"
             />
-            <input
-                type="time"
-                value={dueTime}
-                onChange={e => setDueTime(e.target.value)}
-                className="w-full p-2 border rounded bg-white text-black"
-            />
-            <button onClick={addTask} className="w-full bg-blue-600 text-white p-2 rounded-md">Add Task</button>
-            </div>
+            <button
+            onClick={addTask}
+            className="w-11/12 bg-blue-600 text-white p-2 rounded-md"
+            >
+            Add Task
+            </button>
+        </div>
         )}
+
 
         {(todayTasks ?? []).length === 0 ? (
             <p className="text-sm text-gray-500">No tasks for today</p>
