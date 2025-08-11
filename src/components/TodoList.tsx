@@ -286,6 +286,14 @@ export default function TodoList() {
     return `${hh12}:${mm.toString().padStart(2, "0")} ${ampm}`;
   };
 
+const debounce = (fn: Function, delay: number) => {
+  let timer: NodeJS.Timeout;
+  return (...args: any[]) => {
+    clearTimeout(timer);
+    timer = setTimeout(() => fn(...args), delay);
+  };
+};
+
   // render a compact task card (smaller)
 const renderTask = (
   task: Task,
@@ -296,7 +304,46 @@ const renderTask = (
 ) => {
   const bg = task.color ?? pastelColors[(task.text?.length ?? 0) % pastelColors.length];
 
-  // Function to add a new blank task row (✅ no prev updater)
+  const saveTask = debounce(async (updatedTask: Task) => {
+    try {
+      await fetch(`/api/tasks/${updatedTask._id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(updatedTask),
+      });
+    } catch (err) {
+      console.error("Failed to save task:", err);
+    }
+  }, 500);
+
+  const updateField = (field: keyof Task, value: any) => {
+    const updatedTask = { ...task, [field]: value };
+    const updatedList = arr.map((item, i) => (i === idx ? updatedTask : item));
+    setArr(updatedList);
+
+    if (task._id) {
+      saveTask(updatedTask);
+    }
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent, field: keyof Task) => {
+    // Cmd+N / Ctrl+N → new task
+    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "n") {
+      e.preventDefault();
+      handleAddNewTask();
+      return;
+    }
+    // Enter → submit
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      saveTask(task);
+    }
+    // Shift+Enter → newline (only in textarea)
+    if (e.key === "Enter" && e.shiftKey && field === "description") {
+      return;
+    }
+  };
+
   const handleAddNewTask = () => {
     const newTask: Task = {
       _id: `temp-${Date.now()}`,
@@ -312,20 +359,6 @@ const renderTask = (
     setArr(newArr);
   };
 
-  // Function to submit the task
-  const handleSubmitTask = () => {
-    // TODO: Replace with your actual save/submit logic
-    console.log("Submitting task:", task);
-  };
-
-  // Helper to update a single field
-  const updateField = (field: keyof Task, value: any) => {
-    const updated = arr.map((item, i) =>
-      i === idx ? { ...item, [field]: value } : item
-    );
-    setArr(updated);
-  };
-
   return (
     <div
       key={task._id ?? `${task.text}-${idx}`}
@@ -333,71 +366,36 @@ const renderTask = (
       style={{ backgroundColor: bg, color: "black" }}
     >
       <div className="flex-1">
-        {/* Task Name Input */}
         <input
-        type="text"
-        value={task.text}
-        onChange={(e) => updateField("text", e.target.value)}
-        onKeyDown={(e) => {
-            if (e.key === "+" && e.code === "Enter") {
-            e.preventDefault();
-            handleAddNewTask();
-            } else if (e.key === "Enter" && !e.shiftKey) {
-            e.preventDefault();
-            handleSubmitTask();
-            }
-        }}
-        className="font-semibold text-base text-black w-11/12 bg-transparent outline-none"
-        placeholder="Task name"
+          type="text"
+          value={task.text}
+          onChange={(e) => updateField("text", e.target.value)}
+          onKeyDown={(e) => handleKeyDown(e, "text")}
+          className="font-semibold text-base text-black w-11/12 bg-transparent outline-none"
+          placeholder="Task name"
         />
-
-        {/* ✅ Description textarea with Shift+Enter for new line */}      
         <textarea
-        value={task.description || ""}
-        onChange={(e) => updateField("description", e.target.value)}
-        onKeyDown={(e) => {
-            if (e.key === "Enter" && e.shiftKey) {
-            // Allow newline
-            return;
-            }
-            if (e.key === "Enter" && !e.shiftKey) {
-            e.preventDefault();
-            handleSubmitTask();
-            }
-        }}
-        className="text-sm mt-1 text-black whitespace-pre-line w-11/12 bg-transparent outline-none"
-        placeholder="More info..."
-        rows={2}
+          value={task.description || ""}
+          onChange={(e) => updateField("description", e.target.value)}
+          onKeyDown={(e) => handleKeyDown(e, "description")}
+          className="text-sm mt-1 text-black whitespace-pre-line w-11/12 bg-transparent outline-none"
+          placeholder="More info..."
+          rows={2}
         />
-
         {task.due && (
           <div className="text-xs mt-1 text-black">
             Due: {formatTime(task.due)}
           </div>
         )}
       </div>
-
       <div className="flex items-center gap-2 ml-2">
-        <button
-          onClick={() => moveTask(setArr, arr, idx, "up")}
-          className="text-lg text-black"
-          aria-label="up"
-        >
-          ↑
-        </button>
-        <button
-          onClick={() => moveTask(setArr, arr, idx, "down")}
-          className="text-lg text-black"
-          aria-label="down"
-        >
-          ↓
-        </button>
+        <button onClick={() => moveTask(setArr, arr, idx, "up")} className="text-lg text-black">↑</button>
+        <button onClick={() => moveTask(setArr, arr, idx, "down")} className="text-lg text-black">↓</button>
         {extras}
       </div>
     </div>
   );
 };
-
 
 
 
