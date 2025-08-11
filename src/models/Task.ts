@@ -4,6 +4,7 @@ export interface Task {
   _id?: string;
   text: string;
   due?: string;
+  description?: string;
   color?: string;
   date?: string;
   completed?: boolean;
@@ -15,6 +16,7 @@ const TaskSchema = new Schema<Task>({
   due: { type: String },
   color: { type: String },
   date: { type: String },
+  description: { type: String},
   completed: { type: Boolean, default: false },
   carryOver: { type: Boolean, default: false }
 });

@@ -8,7 +8,8 @@ const inter = Inter({ subsets: ["latin"], weight: ["400", "600", "700"] });
 type Task = {
   _id?: string;
   text: string;
-  due?: string;            // "HH:MM"
+  due?: string;
+  description?: string;
   color?: string;
   completed?: boolean;
   carryOver?: boolean;
@@ -22,6 +23,7 @@ export default function TodoList() {
   const [carryOverTasks, setCarryOverTasks] = useState<Task[]>([]);
   const [completedTasks, setCompletedTasks] = useState<Task[]>([]);
   const [showForm, setShowForm] = useState(false);
+  const [newDescription, setNewDescription] = useState("");
   const [newTask, setNewTask] = useState("");
   const [dueTime, setDueTime] = useState("");
   const [dateInfo, setDateInfo] = useState<DateInfo>({ date: "" });
@@ -75,31 +77,46 @@ export default function TodoList() {
       const carry: Task[] = [];
       const completed: Task[] = [];
 
-      allTasks.forEach((t: any) => {
-        // ensure typed shape
+    allTasks.forEach((t: any) => {
         const task: Task = {
-          _id: t._id ?? t.id,
-          text: t.text ?? "",
-          due: t.due,
-          color: t.color,
-          completed: !!t.completed,
-          carryOver: !!t.carryOver,
-          date: t.date,
+            _id: t._id ?? t.id,
+            text: t.text ?? "",
+            due: t.due,
+            color: t.color,
+            completed: !!t.completed,
+            carryOver: !!t.carryOver,
+            date: t.date,
         };
 
         if (task.completed) {
-          completed.push(task);
-        } else if (task.carryOver) {
-          carry.push(task);
-        } else if (task.date) {
-          // if date equals today => today's task, otherwise carry over
-          if (task.date === todayStr) today.push(task);
-          else carry.push(task);
-        } else {
-          // no date -> assume today
-          today.push(task);
+            // ✅ Completed tasks always go to completed
+            completed.push(task);
+            return;
         }
-      });
+
+        // Determine date comparisons
+        const taskDate = task.date ? new Date(task.date) : null;
+        const todayDate = new Date(todayStr);
+        const isPastDate = taskDate && taskDate < todayDate;
+
+        if (isPastDate) {
+            // ⏪ Past date + not completed => carry over
+            carry.push({ ...task, carryOver: true });
+        } else if (task.carryOver) {
+            // 📦 Explicit carry-over flag from DB
+            carry.push(task);
+        } else if (task.date === todayStr) {
+            // 📅 Today
+            today.push(task);
+        } else if (!task.date) {
+            // 🆕 No date? Treat as today
+            today.push({ ...task, date: todayStr });
+        } else {
+            // 🗓 Future tasks (keep them as carry-over until their date arrives)
+            carry.push(task);
+        }
+    });
+
 
       // sort today's tasks by due
       const sortByDue = (arr: Task[]) => arr.sort((a, b) => (a.due ?? "").localeCompare(b.due ?? ""));
@@ -142,6 +159,7 @@ export default function TodoList() {
       const payload = {
         text: newTask,
         due: dueTime,
+        description: newDescription,
         date: todayISODate(),    // IMPORTANT: ensure server stores date
         carryOver: false
       };
@@ -158,6 +176,7 @@ export default function TodoList() {
         return updated.sort((a,b) => (a.due ?? "").localeCompare(b.due ?? ""));
       });
       setNewTask("");
+      setNewDescription("");
       setDueTime("");
       setShowForm(false);
     } catch (err) {
@@ -184,7 +203,7 @@ export default function TodoList() {
     const found = todayTasks.find(t => t._id === id);
     if (found) {
       setTodayTasks(prev => prev.filter(t => t._id !== id));
-      setCompletedTasks(prev => [ { ...found, completed: true }, ...prev ]);
+      setCompletedTasks(prev => [ { ...found, description: undefined, completed: true }, ...prev ]);
     }
 
     try {
@@ -268,33 +287,120 @@ export default function TodoList() {
   };
 
   // render a compact task card (smaller)
-  const renderTask = (
-    task: Task,
-    idx: number,
-    arr: Task[],
-    setArr: (v: Task[]) => void,
-    extras?: React.ReactNode
-  ) => {
-    const bg = task.color ?? pastelColors[(task.text?.length ?? 0) % pastelColors.length];
-    return (
-      <div
-        key={task._id ?? `${task.text}-${idx}`}
-        className="flex justify-between items-center p-3 mb-3 rounded-md border border-gray-300 shadow-sm w-full"
-        style={{ backgroundColor: bg, color: "black" }}
-      >
-        <div>
-          <div className="font-semibold text-base text-black">{task.text}</div>
-          {task.due && <div className="text-xs mt-1 text-black">Due: {formatTime(task.due)}</div>}
-        </div>
+const renderTask = (
+  task: Task,
+  idx: number,
+  arr: Task[],
+  setArr: (v: Task[]) => void,
+  extras?: React.ReactNode
+) => {
+  const bg = task.color ?? pastelColors[(task.text?.length ?? 0) % pastelColors.length];
 
-        <div className="flex items-center gap-2">
-          <button onClick={() => moveTask(setArr, arr, idx, "up")} className="text-lg text-black" aria-label="up">↑</button>
-          <button onClick={() => moveTask(setArr, arr, idx, "down")} className="text-lg text-black" aria-label="down">↓</button>
-          {extras}
-        </div>
-      </div>
-    );
+  // Function to add a new blank task row (✅ no prev updater)
+  const handleAddNewTask = () => {
+    const newTask: Task = {
+      _id: `temp-${Date.now()}`,
+      text: "",
+      description: "",
+      due: "",
+      color: pastelColors[Math.floor(Math.random() * pastelColors.length)],
+      completed: false,
+      carryOver: false,
+      date: todayISODate(),
+    };
+    const newArr = [...arr.slice(0, idx + 1), newTask, ...arr.slice(idx + 1)];
+    setArr(newArr);
   };
+
+  // Function to submit the task
+  const handleSubmitTask = () => {
+    // TODO: Replace with your actual save/submit logic
+    console.log("Submitting task:", task);
+  };
+
+  // Helper to update a single field
+  const updateField = (field: keyof Task, value: any) => {
+    const updated = arr.map((item, i) =>
+      i === idx ? { ...item, [field]: value } : item
+    );
+    setArr(updated);
+  };
+
+  return (
+    <div
+      key={task._id ?? `${task.text}-${idx}`}
+      className="flex justify-between items-center p-3 mb-3 rounded-md border border-gray-300 shadow-sm w-full"
+      style={{ backgroundColor: bg, color: "black" }}
+    >
+      <div className="flex-1">
+        {/* Task Name Input */}
+        <input
+          type="text"
+          value={task.text}
+          onChange={(e) => updateField("text", e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "+" && e.code === "Enter") {
+              e.preventDefault();
+              handleAddNewTask();
+            } else if (e.key === "Enter" && !e.shiftKey) {
+              e.preventDefault();
+              handleSubmitTask();
+            }
+          }}
+          className="font-semibold text-base text-black w-full bg-transparent outline-none"
+          placeholder="Task name"
+        />
+
+        {/* ✅ Description textarea with Shift+Enter for new line */}
+        <textarea
+          value={task.description || ""}
+          onChange={(e) => updateField("description", e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && e.shiftKey) {
+              // Allow newline
+              return;
+            }
+            if (e.key === "Enter" && !e.shiftKey) {
+              e.preventDefault();
+              handleSubmitTask();
+            }
+          }}
+          className="text-sm mt-1 text-black whitespace-pre-line w-full bg-transparent outline-none"
+          placeholder="More info..."
+          rows={2}
+        />
+
+        {task.due && (
+          <div className="text-xs mt-1 text-black">
+            Due: {formatTime(task.due)}
+          </div>
+        )}
+      </div>
+
+      <div className="flex items-center gap-2 ml-2">
+        <button
+          onClick={() => moveTask(setArr, arr, idx, "up")}
+          className="text-lg text-black"
+          aria-label="up"
+        >
+          ↑
+        </button>
+        <button
+          onClick={() => moveTask(setArr, arr, idx, "down")}
+          className="text-lg text-black"
+          aria-label="down"
+        >
+          ↓
+        </button>
+        {extras}
+      </div>
+    </div>
+  );
+};
+
+
+
+
 
   // outer grid - NOTE: items-start so column heights are independent.
     return (
@@ -331,6 +437,13 @@ export default function TodoList() {
                 placeholder="Task"
                 value={newTask}
                 onChange={e => setNewTask(e.target.value)}
+                className="w-full p-2 border rounded bg-white text-black"
+            />
+            <input
+                type="text"
+                placeholder="More Info"
+                value={newDescription}
+                onChange={e => setNewDescription(e.target.value)}
                 className="w-full p-2 border rounded bg-white text-black"
             />
             <input
