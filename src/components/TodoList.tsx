@@ -333,14 +333,33 @@ export default function TodoList() {
     }, 450);
 
     const updateField = (field: keyof Task, value: any) => {
-      const updatedTask = { ...task, [field]: value };
-      const updatedList = arr.map((item, i) => (i === idx ? updatedTask : item));
-      setArr(updatedList);
-      // avoid saving temp items
-      if (updatedTask._id && !String(updatedTask._id).startsWith("temp-")) {
-        saveTask(updatedTask);
-      }
-    };
+        const updatedTask = { ...task, [field]: value };
+        const updatedList = arr.map((item, i) => (i === idx ? updatedTask : item));
+        setArr(updatedList);
+
+        // Immediately persist changes even for new temp tasks
+        if (!updatedTask._id || String(updatedTask._id).startsWith("temp-")) {
+            // If it's a temp task, create it instead of patching
+            fetch("/api/tasks", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(updatedTask),
+            })
+            .then(res => res.json())
+            .then(data => {
+                // Replace temp task with server version
+                const created = data.task ?? data;
+                setArr(prev =>
+                prev.map(t => (t.clientTempId === task.clientTempId ? created : t))
+                );
+            })
+            .catch(err => console.error("Failed to create task:", err));
+        } else {
+            // Real ID → patch
+            saveTask(updatedTask);
+        }
+        };
+
 
     const handleKeyDown = (e: React.KeyboardEvent, field: keyof Task) => {
       // Cmd/Ctrl+N -> new task
