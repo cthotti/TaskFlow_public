@@ -37,105 +37,100 @@ export default function TodoList() {
 
   // --- fetchTasks: robust categorization ---
   const fetchTasks = async () => {
-  try {
-    const res = await fetch("/api/tasks");
-    if (!res.ok) {
-      console.warn("fetch /api/tasks returned non-ok:", res.status);
-      return;
-    }
-    const data = await res.json();
-
-    // Helper function to process task objects and ensure all fields are included
-    const processTask = (t: any): Task => ({
-      _id: t._id ?? t.id,
-      text: t.text ?? "",
-      due: t.due,
-      description: t.description, // ✅ Include description
-      color: t.color,
-      completed: !!t.completed,
-      carryOver: !!t.carryOver,
-      date: t.date,
-    });
-
-    // If API already splits lists, use them directly
-    if (data.todayTasks !== undefined || data.carryOverTasks !== undefined || data.completedTasks !== undefined) {
-      const processTaskArray = (tasks: any[]) => tasks ? tasks.map(processTask) : [];
-      
-      setTodayTasks(processTaskArray(data.todayTasks));
-      setCarryOverTasks(processTaskArray(data.carryOverTasks));
-      setCompletedTasks(processTaskArray(data.completedTasks));
-      return;
-    }
-
-    // Fallback: handle other data formats
-    let allTasks: any[] = [];
-
-    if (Array.isArray(data)) {
-      allTasks = data;
-    } else if (Array.isArray(data.tasks)) {
-      allTasks = data.tasks;
-    } else {
-      // Try to find any array in the response
-      const maybe = Object.values(data).find(v => Array.isArray(v)) as any[];
-      if (Array.isArray(maybe)) {
-        allTasks = maybe;
-      } else {
-        console.warn("No task arrays found in API response:", data);
-        allTasks = [];
-      }
-    }
-
-    // Categorize tasks by flags/date
-    const todayStr = todayISODate();
-    const today: Task[] = [];
-    const carry: Task[] = [];
-    const completed: Task[] = [];
-
-    allTasks.forEach((t: any) => {
-      const task = processTask(t); // ✅ Use helper function to include description
-
-      if (task.completed) {
-        // ✅ Completed tasks always go to completed
-        completed.push(task);
+    try {
+      const res = await fetch("/api/tasks");
+      if (!res.ok) {
+        console.warn("fetch /api/tasks returned non-ok:", res.status);
         return;
       }
+      const data = await res.json();
 
-      // Determine date comparisons
-      const taskDate = task.date ? new Date(task.date) : null;
-      const todayDate = new Date(todayStr);
-      const isPastDate = taskDate && taskDate < todayDate;
+      // Accept many shapes: { today:[], carryOver:[], completed:[] }
+      // or { tasks: [...] } or plain array.
+      let allTasks: Task[] = [];
 
-      if (isPastDate) {
-        // ⏪ Past date + not completed => carry over
-        carry.push({ ...task, carryOver: true });
-      } else if (task.carryOver) {
-        // 📦 Explicit carry-over flag from DB
-        carry.push(task);
-      } else if (task.date === todayStr) {
-        // 📅 Today
-        today.push(task);
-      } else if (!task.date) {
-        // 🆕 No date? Treat as today
-        today.push({ ...task, date: todayStr });
+      if (Array.isArray(data)) {
+        allTasks = data;
+      } else if (Array.isArray(data.tasks)) {
+        allTasks = data.tasks;
       } else {
-        // 🗓 Future tasks (keep them as carry-over until their date arrives)
-        carry.push(task);
+        // If API already splits lists, use them
+        if (Array.isArray(data.today) || Array.isArray(data.carryOver) || Array.isArray(data.completed)) {
+          setTodayTasks(Array.isArray(data.today) ? data.today : []);
+          setCarryOverTasks(Array.isArray(data.carryOver) ? data.carryOver : []);
+          setCompletedTasks(Array.isArray(data.completed) ? data.completed : []);
+          return;
+        }
+        // fallback: try any other top-level arrays (robust)
+        const maybe = Object.values(data).find(v => Array.isArray(v)) as any;
+        if (Array.isArray(maybe)) {
+          allTasks = maybe;
+        } else {
+          // as last resort, treat data as empty
+          allTasks = [];
+        }
       }
+
+      // categorize by flags/date
+      const todayStr = todayISODate();
+      const today: Task[] = [];
+      const carry: Task[] = [];
+      const completed: Task[] = [];
+
+    allTasks.forEach((t: any) => {
+        const task: Task = {
+            _id: t._id ?? t.id,
+            text: t.text ?? "",
+            due: t.due,
+            color: t.color,
+            completed: !!t.completed,
+            carryOver: !!t.carryOver,
+            date: t.date,
+        };
+
+        if (task.completed) {
+            // ✅ Completed tasks always go to completed
+            completed.push(task);
+            return;
+        }
+
+        // Determine date comparisons
+        const taskDate = task.date ? new Date(task.date) : null;
+        const todayDate = new Date(todayStr);
+        const isPastDate = taskDate && taskDate < todayDate;
+
+        if (isPastDate) {
+            // ⏪ Past date + not completed => carry over
+            carry.push({ ...task, carryOver: true });
+        } else if (task.carryOver) {
+            // 📦 Explicit carry-over flag from DB
+            carry.push(task);
+        } else if (task.date === todayStr) {
+            // 📅 Today
+            today.push(task);
+        } else if (!task.date) {
+            // 🆕 No date? Treat as today
+            today.push({ ...task, date: todayStr });
+        } else {
+            // 🗓 Future tasks (keep them as carry-over until their date arrives)
+            carry.push(task);
+        }
     });
 
-    // Sort today's tasks by due time
-    const sortByDue = (arr: Task[]) => arr.sort((a, b) => (a.due ?? "").localeCompare(b.due ?? ""));
 
-    setTodayTasks(sortByDue(today));
-    setCarryOverTasks(carry);
-    setCompletedTasks(completed);
-  } catch (err) {
-    console.error("Failed to fetch tasks:", err);
-    setTodayTasks([]);
-    setCarryOverTasks([]);
-    setCompletedTasks([]);
-  }
-};
+      // sort today's tasks by due
+      const sortByDue = (arr: Task[]) => arr.sort((a, b) => (a.due ?? "").localeCompare(b.due ?? ""));
+
+      setTodayTasks(sortByDue(today));
+      setCarryOverTasks(carry);
+      setCompletedTasks(completed);
+    } catch (err) {
+      console.error("Failed to fetch tasks:", err);
+      setTodayTasks([]);
+      setCarryOverTasks([]);
+      setCompletedTasks([]);
+    }
+  };
 
   // Try python backend /date, fallback to client date
   const fetchDate = async () => {
@@ -448,6 +443,7 @@ const renderTask = (
                 value={newDescription}
                 onChange={e => setNewDescription(e.target.value)}
                 className="w-full p-2 border rounded bg-white text-black"
+                rows={3}
             />
             <input
                 type="time"
