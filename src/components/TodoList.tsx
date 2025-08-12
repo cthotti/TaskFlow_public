@@ -166,36 +166,38 @@ export default function TodoList() {
   };
 
   // ---------- addTask (POST) ----------
-  const addTask = async () => {
-    if (!newTask.trim()) return; // require text but allow optional due time
-    try {
-      const payload = {
-        text: newTask,
-        due: dueTime || undefined,
-        description: newDescription,
-        date: todayStr(),
-        carryOver: false
-      };
-      const res = await fetch("/api/tasks", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-      if (!res.ok) throw new Error("add task failed " + res.status);
-      const data = await res.json();
-      const newT: Task = data.task ?? data;
-      setTodayTasks(prev => {
-        const updated = [...prev, newT];
-        return updated.sort((a, b) => (a.due ?? "").localeCompare(b.due ?? ""));
-      });
-      setNewTask("");
-      setNewDescription("");
-      setDueTime("");
-      setShowForm(false);
-    } catch (err) {
-      console.error("Failed to add task:", err);
-    }
-  };
+const addTask = async () => {
+  if (!newTask.trim()) return;
+  try {
+    const payload = {
+      text: newTask,
+      description: newTask, // <-- use same value for description
+      due: dueTime || undefined,
+      date: todayStr(),
+      carryOver: false,
+    };
+    const res = await fetch("/api/tasks", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) throw new Error("add task failed " + res.status);
+    const data = await res.json();
+    const newT: Task = data.task ?? data;
+    setTodayTasks((prev) => {
+      const updated = [...prev, newT];
+      return updated.sort((a, b) =>
+        (a.due ?? "").localeCompare(b.due ?? "")
+      );
+    });
+    setNewTask("");
+    setDueTime("");
+    setShowForm(false);
+  } catch (err) {
+    console.error("Failed to add task:", err);
+  }
+};
+
 
   // ---------- deleteTask ----------
   const deleteTask = async (id?: string, clientTempId?: string) => {
@@ -463,60 +465,71 @@ export default function TodoList() {
       {/* Today */}
       <main className="bg-white rounded-lg p-6 border border-gray-300 shadow-md">
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-xl font-bold text-black">{dateInfo.date || new Date().toLocaleDateString()}</h2>
-          <button onClick={() => setShowForm(s => !s)} className="text-3xl text-blue-600" aria-label="toggle add form">+</button>
+            <h2 className="text-xl font-bold text-black">
+            {dateInfo.date || new Date().toLocaleDateString()}
+            </h2>
+            <button
+            onClick={() => setShowForm((s) => !s)}
+            className="text-3xl text-blue-600"
+            aria-label="toggle add form"
+            >
+            +
+            </button>
         </div>
 
         {showForm && (
-          <div className="mb-3 space-y-2">
+            <div className="mb-3 space-y-2">
             <input
-              type="text"
-              placeholder="Task"
-              value={newTask}
-              onChange={e => setNewTask(e.target.value)}
-              className="w-11/12 p-2 border rounded bg-white text-black"
-            />
-            <textarea
-              placeholder="More Info"
-              value={newDescription}
-              onChange={e => setNewDescription(e.target.value)}
-              onKeyDown={(e) => {
+                type="text"
+                placeholder="Task (Title & More Info)"
+                value={newTask}
+                onChange={(e) => setNewTask(e.target.value)}
+                onKeyDown={(e) => {
                 if (e.key === "Enter" && !e.shiftKey) {
-                  e.preventDefault();
-                  addTask();
+                    e.preventDefault();
+                    addTask();
                 }
-              }}
-              className="w-11/12 p-2 border rounded bg-white text-black whitespace-pre-line"
-              rows={2}
+                }}
+                className="w-11/12 p-2 border rounded bg-white text-black"
             />
             <input
-              type="time"
-              value={dueTime}
-              onChange={e => setDueTime(e.target.value)}
-              className="w-11/12 p-2 border rounded bg-white text-black"
+                type="time"
+                value={dueTime}
+                onChange={(e) => setDueTime(e.target.value)}
+                className="w-11/12 p-2 border rounded bg-white text-black"
             />
             <button
-              onClick={addTask}
-              className="w-11/12 bg-blue-600 text-white p-2 rounded-md"
+                onClick={addTask}
+                className="w-11/12 bg-blue-600 text-white p-2 rounded-md"
             >
-              Add Task
+                Add Task
             </button>
-          </div>
+            </div>
         )}
 
         {todayTasks.length === 0 ? (
-          <p className="text-sm text-gray-500">No tasks for today</p>
+            <p className="text-sm text-gray-500">No tasks for today</p>
         ) : (
-          todayTasks.map((t, i) =>
+            todayTasks.map((t, i) =>
             renderTask(t, i, todayTasks, setTodayTasks, (
-              <>
-                <input type="checkbox" onChange={() => markComplete(t._id, t.clientTempId)} aria-label="complete" />
-                <button onClick={() => deleteTask(t._id, t.clientTempId)} className="text-lg text-red-600" aria-label="delete">×</button>
-              </>
+                <>
+                <input
+                    type="checkbox"
+                    onChange={() => markComplete(t._id, t.clientTempId)}
+                    aria-label="complete"
+                />
+                <button
+                    onClick={() => deleteTask(t._id, t.clientTempId)}
+                    className="text-lg text-red-600"
+                    aria-label="delete"
+                >
+                    ×
+                </button>
+                </>
             ))
-          )
+            )
         )}
-      </main>
+        </main>
 
       {/* Completed */}
       <section className="bg-white rounded-lg p-6 border border-gray-300 shadow-md">
