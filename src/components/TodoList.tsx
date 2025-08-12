@@ -8,51 +8,16 @@ const inter = Inter({ subsets: ["latin"], weight: ["400", "600", "700"] });
 type Task = {
   _id?: string;
   text: string;
-  due?: string;          // "HH:MM"
+  due?: string;
   description?: string;
   color?: string;
   completed?: boolean;
   carryOver?: boolean;
-  date?: string;         // "YYYY-MM-DD"
-  // optionally include createdAt or clientTempId if needed
-  clientTempId?: string;
+  date?: string;          // "YYYY-MM-DD"
 };
 
 type DateInfo = { date: string };
 
-// ---------- Utilities: local-ISO date + safe date parsing ----------
-const localISODate = (): string => {
-  // returns YYYY-MM-DD in local timezone
-  const d = new Date();
-  const tzOffsetMs = d.getTimezoneOffset() * 60000;
-  return new Date(Date.now() - tzOffsetMs).toISOString().split("T")[0];
-};
-
-const parseYMD = (s?: string): Date | null => {
-  if (!s) return null;
-  const parts = s.split("-");
-  if (parts.length !== 3) return null;
-  const [y, m, d] = parts.map(Number);
-  if (!y || !m || !d) return null;
-  return new Date(y, m - 1, d);
-};
-
-const isBeforeDay = (a?: string, b?: string) => {
-  const da = parseYMD(a), db = parseYMD(b);
-  if (!da || !db) return false;
-  return da.getTime() < db.getTime();
-};
-
-// ---------- debounce (browser-safe typing) ----------
-function debounce<T extends (...args: any[]) => void>(fn: T, ms = 300) {
-  let timer: ReturnType<typeof setTimeout> | null = null;
-  return (...args: Parameters<T>) => {
-    if (timer) clearTimeout(timer);
-    timer = setTimeout(() => fn(...args), ms);
-  };
-}
-
-// ---------- Component ----------
 export default function TodoList() {
   const [todayTasks, setTodayTasks] = useState<Task[]>([]);
   const [carryOverTasks, setCarryOverTasks] = useState<Task[]>([]);
@@ -68,9 +33,9 @@ export default function TodoList() {
     "#D5AAFF", "#FFFACD", "#C1F0F6", "#FFB3BA", "#BAFFC9"
   ];
 
-  const todayStr = () => localISODate();
+  const todayISODate = () => new Date().toISOString().split("T")[0];
 
-  // ---------- fetchTasks ----------
+  // --- fetchTasks: robust categorization ---
   const fetchTasks = async () => {
     try {
       const res = await fetch("/api/tasks");
@@ -80,61 +45,80 @@ export default function TodoList() {
       }
       const data = await res.json();
 
+      // Accept many shapes: { today:[], carryOver:[], completed:[] }
+      // or { tasks: [...] } or plain array.
       let allTasks: Task[] = [];
+
       if (Array.isArray(data)) {
         allTasks = data;
       } else if (Array.isArray(data.tasks)) {
         allTasks = data.tasks;
-      } else if (Array.isArray(data.today) || Array.isArray(data.carryOver) || Array.isArray(data.completed)) {
-        setTodayTasks(Array.isArray(data.today) ? data.today : []);
-        setCarryOverTasks(Array.isArray(data.carryOver) ? data.carryOver : []);
-        setCompletedTasks(Array.isArray(data.completed) ? data.completed : []);
-        return;
       } else {
+        // If API already splits lists, use them
+        if (Array.isArray(data.today) || Array.isArray(data.carryOver) || Array.isArray(data.completed)) {
+          setTodayTasks(Array.isArray(data.today) ? data.today : []);
+          setCarryOverTasks(Array.isArray(data.carryOver) ? data.carryOver : []);
+          setCompletedTasks(Array.isArray(data.completed) ? data.completed : []);
+          return;
+        }
+        // fallback: try any other top-level arrays (robust)
         const maybe = Object.values(data).find(v => Array.isArray(v)) as any;
-        allTasks = Array.isArray(maybe) ? maybe : [];
+        if (Array.isArray(maybe)) {
+          allTasks = maybe;
+        } else {
+          // as last resort, treat data as empty
+          allTasks = [];
+        }
       }
 
-      const todayIso = todayStr();
+      // categorize by flags/date
+      const todayStr = todayISODate();
       const today: Task[] = [];
       const carry: Task[] = [];
       const completed: Task[] = [];
 
-      allTasks.forEach((t: any) => {
+    allTasks.forEach((t: any) => {
         const task: Task = {
-          _id: t._id ?? t.id,
-          text: t.text ?? "",
-          due: t.due,
-          color: t.color,
-          completed: !!t.completed,
-          carryOver: !!t.carryOver,
-          date: t.date,
-          description: t.description,
+            _id: t._id ?? t.id,
+            text: t.text ?? "",
+            due: t.due,
+            color: t.color,
+            completed: !!t.completed,
+            carryOver: !!t.carryOver,
+            date: t.date,
         };
 
         if (task.completed) {
-          completed.push(task);
-          return;
+            // ✅ Completed tasks always go to completed
+            completed.push(task);
+            return;
         }
 
-        const taskDate = task.date ? parseYMD(task.date) : null;
-        const todayDate = parseYMD(todayIso);
-        const isPastDate = taskDate && todayDate && taskDate.getTime() < todayDate.getTime();
+        // Determine date comparisons
+        const taskDate = task.date ? new Date(task.date) : null;
+        const todayDate = new Date(todayStr);
+        const isPastDate = taskDate && taskDate < todayDate;
 
         if (isPastDate) {
-          carry.push({ ...task, carryOver: true });
+            // ⏪ Past date + not completed => carry over
+            carry.push({ ...task, carryOver: true });
         } else if (task.carryOver) {
-          carry.push(task);
-        } else if (task.date === todayIso) {
-          today.push(task);
+            // 📦 Explicit carry-over flag from DB
+            carry.push(task);
+        } else if (task.date === todayStr) {
+            // 📅 Today
+            today.push(task);
         } else if (!task.date) {
-          today.push({ ...task, date: todayIso });
+            // 🆕 No date? Treat as today
+            today.push({ ...task, date: todayStr });
         } else {
-          // future tasks keep in carry for now
-          carry.push(task);
+            // 🗓 Future tasks (keep them as carry-over until their date arrives)
+            carry.push(task);
         }
-      });
+    });
 
+
+      // sort today's tasks by due
       const sortByDue = (arr: Task[]) => arr.sort((a, b) => (a.due ?? "").localeCompare(b.due ?? ""));
 
       setTodayTasks(sortByDue(today));
@@ -148,108 +132,101 @@ export default function TodoList() {
     }
   };
 
-  // ---------- fetchDate (optional external) ----------
+  // Try python backend /date, fallback to client date
   const fetchDate = async () => {
     try {
       if (process.env.NEXT_PUBLIC_API_URL) {
         const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/date`);
         if (res.ok) {
           const d = await res.json();
-          setDateInfo({ date: d.date ?? new Date().toLocaleDateString() });
+          setDateInfo({ date: d.date ?? formatLocalDate(new Date()) });
           return;
         }
       }
-    } catch (_e) {
-      // ignore
+    } catch (err) {
+      // ignore - fallback to local
     }
-    setDateInfo({ date: new Date().toLocaleDateString(undefined, { weekday: "long", year: "numeric", month: "long", day: "numeric" }) });
+    setDateInfo({ date: formatLocalDate(new Date()) });
   };
 
-  // ---------- addTask (POST) ----------
-const addTask = async () => {
-  if (!newTask.trim()) return;
-  try {
-    const payload = {
-      text: newTask,
-      description: newTask, // <-- use same value for description
-      due: dueTime || undefined,
-      date: todayStr(),
-      carryOver: false,
-    };
-    const res = await fetch("/api/tasks", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-    if (!res.ok) throw new Error("add task failed " + res.status);
-    const data = await res.json();
-    const newT: Task = data.task ?? data;
-    setTodayTasks((prev) => {
-      const updated = [...prev, newT];
-      return updated.sort((a, b) =>
-        (a.due ?? "").localeCompare(b.due ?? "")
-      );
-    });
-    setNewTask("");
-    setDueTime("");
-    setShowForm(false);
-  } catch (err) {
-    console.error("Failed to add task:", err);
-  }
-};
+  const formatLocalDate = (d: Date) =>
+    d.toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" });
 
-
-  // ---------- deleteTask ----------
-  const deleteTask = async (id?: string, clientTempId?: string) => {
+  // --- addTask: send date so it stays in Today on reload ---
+  const addTask = async () => {
+    if (!newTask || !dueTime) return;
     try {
-      if (id && !id.startsWith("temp-")) {
-        const res = await fetch(`/api/tasks/${id}`, { method: "DELETE" });
-        if (!res.ok) console.warn("delete returned non-ok", res.status);
-      }
-      // optimistic local removal
-      setTodayTasks(prev => prev.filter(t => t._id !== id && t.clientTempId !== clientTempId));
-      setCarryOverTasks(prev => prev.filter(t => t._id !== id && t.clientTempId !== clientTempId));
-      setCompletedTasks(prev => prev.filter(t => t._id !== id && t.clientTempId !== clientTempId));
+      const payload = {
+        text: newTask,
+        due: dueTime,
+        description: newDescription,
+        date: todayISODate(),    // IMPORTANT: ensure server stores date
+        carryOver: false
+      };
+      const res = await fetch("/api/tasks", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) throw new Error("add task failed " + res.status);
+      const data = await res.json();
+      const newT: Task = data.task ?? data;
+      setTodayTasks(prev => {
+        const updated = [...prev, newT];
+        return updated.sort((a,b) => (a.due ?? "").localeCompare(b.due ?? ""));
+      });
+      setNewTask("");
+      setNewDescription("");
+      setDueTime("");
+      setShowForm(false);
+    } catch (err) {
+      console.error("Failed to add task:", err);
+    }
+  };
+
+  // --- deleteTask safely updates only lists that contain the id ---
+  const deleteTask = async (id: string) => {
+    try {
+      const res = await fetch(`/api/tasks/${id}`, { method: "DELETE" });
+      if (!res.ok) console.warn("delete returned non-ok", res.status);
+      setTodayTasks(prev => prev.filter(t => t._id !== id));
+      setCarryOverTasks(prev => prev.filter(t => t._id !== id));
+      setCompletedTasks(prev => prev.filter(t => t._id !== id));
     } catch (err) {
       console.error("Delete failed:", err);
     }
   };
 
-  // ---------- markComplete ----------
-  const markComplete = async (id?: string, clientTempId?: string) => {
-    // find in today first, fallback to carryOver
-    const found = todayTasks.find(t => t._id === id || t.clientTempId === clientTempId) ||
-                  carryOverTasks.find(t => t._id === id || t.clientTempId === clientTempId);
+  // --- markComplete: optimistic UI update (move to completed) ---
+  const markComplete = async (id: string) => {
+    // optimistic: remove locally and move to completed
+    const found = todayTasks.find(t => t._id === id);
     if (found) {
-      // optimistic
-      setTodayTasks(prev => prev.filter(t => t._id !== id && t.clientTempId !== clientTempId));
-      setCarryOverTasks(prev => prev.filter(t => t._id !== id && t.clientTempId !== clientTempId));
-      setCompletedTasks(prev => [{ ...found, completed: true }, ...prev]);
+      setTodayTasks(prev => prev.filter(t => t._id !== id));
+      setCompletedTasks(prev => [ { ...found, description: undefined, completed: true }, ...prev ]);
     }
 
     try {
-      if (id && !id.startsWith("temp-")) {
-        const res = await fetch(`/api/tasks/${id}`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ completed: true }),
-        });
-        if (!res.ok) {
-          console.warn("markComplete patch failed", res.status);
-          fetchTasks();
-        } else {
-          const data = await res.json().catch(() => null);
-          const updated = data?.task ?? null;
-          if (updated) {
-            setCompletedTasks(prev => {
-              const filtered = prev.filter(p => p._id !== id);
-              return [updated, ...filtered];
-            });
-          }
-        }
-      } else {
-        // cannot PATCH a temp id — force a refetch to sync if desired
+      const res = await fetch(`/api/tasks/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ completed: true }),
+      });
+      if (!res.ok) {
+        console.warn("markComplete patch failed", res.status);
+        // fallback: refetch lists to re-sync
         fetchTasks();
+      } else {
+        // try to update the server-returned task into completed list if provided
+        const data = await res.json().catch(() => null);
+        const updated = data?.task ?? null;
+        if (updated) {
+          setCompletedTasks(prev => {
+            // replace the optimistic entry with server's updated one (match by id)
+            const replaced = prev.filter(p => p._id !== id);
+            return [updated, ...replaced];
+          });
+        }
       }
     } catch (err) {
       console.error("Mark complete failed:", err);
@@ -257,26 +234,28 @@ const addTask = async () => {
     }
   };
 
-  // ---------- addToToday ----------
-  const addToToday = async (id?: string) => {
-    if (!id) return;
-    const today = todayStr();
+  // --- addToToday (carry -> today): patch date & carryOver false and update local lists ---
+  const addToToday = async (id: string) => {
+    const todayStr = todayISODate();
     try {
       const res = await fetch(`/api/tasks/${id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ carryOver: false, date: today }),
+        body: JSON.stringify({ carryOver: false, date: todayStr }),
       });
       if (!res.ok) throw new Error("patch failed " + res.status);
       const data = await res.json().catch(() => null);
-      const updated: Task | null = data?.task ?? null;
+      const updated: Task = data?.task ?? null;
+
+      // remove from carryOver locally
       setCarryOverTasks(prev => prev.filter(t => t._id !== id));
       if (updated) {
         setTodayTasks(prev => {
           const next = [...prev, updated];
-          return next.sort((a, b) => (a.due ?? "").localeCompare(b.due ?? ""));
+          return next.sort((a,b)=> (a.due ?? "").localeCompare(b.due ?? ""));
         });
       } else {
+        // fallback: re-fetch
         fetchTasks();
       }
     } catch (err) {
@@ -285,8 +264,8 @@ const addTask = async () => {
     }
   };
 
-  // ---------- local reorder ----------
-  const moveTask = (setter: React.Dispatch<React.SetStateAction<Task[]>>, arr: Task[], i: number, dir: "up" | "down") => {
+  // local up/down movement
+  const moveTask = (setter: (arr: Task[]) => void, arr: Task[], i: number, dir: "up" | "down") => {
     const updated = [...arr];
     const j = dir === "up" ? i - 1 : i + 1;
     if (j < 0 || j >= arr.length) return;
@@ -301,249 +280,209 @@ const addTask = async () => {
 
   const formatTime = (time?: string) => {
     if (!time) return "";
-    const [hhStr, mmStr] = time.split(":");
-    const hh = Number(hhStr);
-    const mm = Number(mmStr);
+    const [hh, mm] = time.split(":").map(Number);
     const hh12 = hh % 12 || 12;
     const ampm = hh >= 12 ? "PM" : "AM";
-    return `${hh12}:${String(mm).padStart(2, "0")} ${ampm}`;
+    return `${hh12}:${mm.toString().padStart(2, "0")} ${ampm}`;
   };
 
-  // ---------- renderTask (compact) ----------
-  const renderTask = (
-    task: Task,
-    idx: number,
-    arr: Task[],
-    setArr: React.Dispatch<React.SetStateAction<Task[]>>,
-    extras?: React.ReactNode
-  ) => {
-    // use stable color: prefer explicit task.color, else hash of id or clientTempId
-    const bg = task.color ?? pastelColors[(task._id?.length ?? task.clientTempId?.length ?? 0) % pastelColors.length];
+  // render a compact task card (smaller)
+const renderTask = (
+  task: Task,
+  idx: number,
+  arr: Task[],
+  setArr: (v: Task[]) => void,
+  extras?: React.ReactNode
+) => {
+  const bg = task.color ?? pastelColors[(task.text?.length ?? 0) % pastelColors.length];
 
-    // save only if server id exists (not temp)
-    const saveTask = debounce(async (updatedTask: Task) => {
-      try {
-        if (!updatedTask._id || String(updatedTask._id).startsWith("temp-")) return;
-        await fetch(`/api/tasks/${updatedTask._id}`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(updatedTask),
-        });
-      } catch (err) {
-        console.error("Failed to save task:", err);
-      }
-    }, 450);
-
-    const updateField = (field: keyof Task, value: any) => {
-        const updatedTask = { ...task, [field]: value };
-        const updatedList = arr.map((item, i) => (i === idx ? updatedTask : item));
-        setArr(updatedList);
-
-        // Immediately persist changes even for new temp tasks
-        if (!updatedTask._id || String(updatedTask._id).startsWith("temp-")) {
-            // If it's a temp task, create it instead of patching
-            fetch("/api/tasks", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(updatedTask),
-            })
-            .then(res => res.json())
-            .then(data => {
-                // Replace temp task with server version
-                const created = data.task ?? data;
-                setArr(prev =>
-                prev.map(t => (t.clientTempId === task.clientTempId ? created : t))
-                );
-            })
-            .catch(err => console.error("Failed to create task:", err));
-        } else {
-            // Real ID → patch
-            saveTask(updatedTask);
-        }
-        };
-
-
-    const handleKeyDown = (e: React.KeyboardEvent, field: keyof Task) => {
-      // Cmd/Ctrl+N -> new task
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "n") {
-        e.preventDefault();
-        handleAddNewTask();
-        return;
-      }
-      // Enter -> save
-      if (e.key === "Enter" && !e.shiftKey) {
-        e.preventDefault();
-        // use latest item from arr to ensure we don't save stale captured `task`
-        const current = arr[idx];
-        saveTask(current);
-      }
-      // Shift+Enter in description -> newline
-      if (e.key === "Enter" && e.shiftKey && field === "description") {
-        return;
-      }
+  // Function to add a new blank task row (✅ no prev updater)
+  const handleAddNewTask = () => {
+    const newTask: Task = {
+      _id: `temp-${Date.now()}`,
+      text: "",
+      description: "",
+      due: "",
+      color: pastelColors[Math.floor(Math.random() * pastelColors.length)],
+      completed: false,
+      carryOver: false,
+      date: todayISODate(),
     };
+    const newArr = [...arr.slice(0, idx + 1), newTask, ...arr.slice(idx + 1)];
+    setArr(newArr);
+  };
 
-    const handleAddNewTask = () => {
-      const clientTempId = `temp-${Date.now()}`;
-      const newTaskObj: Task = {
-        clientTempId,
-        text: "",
-        description: "",
-        due: "",
-        color: pastelColors[Math.floor(Math.random() * pastelColors.length)],
-        completed: false,
-        carryOver: false,
-        date: todayStr(),
-      };
-      const newArr = [...arr.slice(0, idx + 1), newTaskObj, ...arr.slice(idx + 1)];
-      setArr(newArr);
-    };
+  // Function to submit the task
+  const handleSubmitTask = () => {
+    // TODO: Replace with your actual save/submit logic
+    console.log("Submitting task:", task);
+  };
 
-    const key = task._id ?? task.clientTempId ?? `${task.text}-${idx}`;
-
-    return (
-      <div
-        key={key}
-        className="flex justify-between items-center p-3 mb-3 rounded-md border border-gray-300 shadow-sm w-full"
-        style={{ backgroundColor: bg, color: "black" }}
-      >
-        <div className="flex-1">
-          <input
-            type="text"
-            value={task.text}
-            onChange={(e) => updateField("text", e.target.value)}
-            onKeyDown={(e) => handleKeyDown(e, "text")}
-            className="font-semibold text-base text-black w-11/12 bg-transparent outline-none"
-            placeholder="Task name"
-            aria-label="Task name"
-          />
-          <textarea
-            value={task.description || ""}
-            onChange={(e) => updateField("description", e.target.value)}
-            onKeyDown={(e) => handleKeyDown(e, "description")}
-            className="text-sm mt-1 text-black whitespace-pre-line w-11/12 bg-transparent outline-none"
-            placeholder="More info..."
-            rows={2}
-            aria-label="Task details"
-          />
-          {task.due && (
-            <div className="text-xs mt-1 text-black">
-              Due: {formatTime(task.due)}
-            </div>
-          )}
-        </div>
-
-        <div className="flex items-center gap-2 ml-2">
-          <button onClick={() => moveTask(setArr, arr, idx, "up")} className="text-lg text-black" aria-label="move up">↑</button>
-          <button onClick={() => moveTask(setArr, arr, idx, "down")} className="text-lg text-black" aria-label="move down">↓</button>
-          {extras}
-        </div>
-      </div>
+  // Helper to update a single field
+  const updateField = (field: keyof Task, value: any) => {
+    const updated = arr.map((item, i) =>
+      i === idx ? { ...item, [field]: value } : item
     );
+    setArr(updated);
   };
 
-  // ---------- render ----------
   return (
-    <div className={`${inter.className} grid grid-cols-1 md:grid-cols-3 gap-6 p-6 items-start`}>
-      {/* Carry Over */}
-      <section className="bg-white rounded-lg p-6 border border-gray-300 shadow-md">
-        <h3 className="text-lg font-bold mb-4 text-center text-black">Carry Over</h3>
-        {carryOverTasks.length === 0 ? (
-          <p className="text-sm text-gray-500 text-center">No carry-over tasks</p>
-        ) : (
-          carryOverTasks.map((t, i) =>
-            renderTask(t, i, carryOverTasks, setCarryOverTasks, (
-              <>
-                <button onClick={() => addToToday(t._id)} className="bg-green-600 text-white px-2 py-1 rounded-md text-sm">Add</button>
-                <button onClick={() => deleteTask(t._id, t.clientTempId)} className="text-lg text-red-600" aria-label="delete">×</button>
-              </>
-            ))
-          )
-        )}
-      </section>
+    <div
+      key={task._id ?? `${task.text}-${idx}`}
+      className="flex justify-between items-center p-3 mb-3 rounded-md border border-gray-300 shadow-sm w-full"
+      style={{ backgroundColor: bg, color: "black" }}
+    >
+      <div className="flex-1">
+        {/* Task Name Input */}
+        <input
+          type="text"
+          value={task.text}
+          onChange={(e) => updateField("text", e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "+" && e.code === "Enter") {
+              e.preventDefault();
+              handleAddNewTask();
+            } else if (e.key === "Enter" && !e.shiftKey) {
+              e.preventDefault();
+              handleSubmitTask();
+            }
+          }}
+          className="font-semibold text-base text-black w-full bg-transparent outline-none"
+          placeholder="Task name"
+        />
 
-      {/* Today */}
-      <main className="bg-white rounded-lg p-6 border border-gray-300 shadow-md">
+        {/* ✅ Description textarea with Shift+Enter for new line */}
+        <textarea
+          value={task.description || ""}
+          onChange={(e) => updateField("description", e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && e.shiftKey) {
+              // Allow newline
+              return;
+            }
+            if (e.key === "Enter" && !e.shiftKey) {
+              e.preventDefault();
+              handleSubmitTask();
+            }
+          }}
+          className="text-sm mt-1 text-black whitespace-pre-line w-full bg-transparent outline-none"
+          placeholder="More info..."
+          rows={2}
+        />
+
+        {task.due && (
+          <div className="text-xs mt-1 text-black">
+            Due: {formatTime(task.due)}
+          </div>
+        )}
+      </div>
+
+      <div className="flex items-center gap-2 ml-2">
+        <button
+          onClick={() => moveTask(setArr, arr, idx, "up")}
+          className="text-lg text-black"
+          aria-label="up"
+        >
+          ↑
+        </button>
+        <button
+          onClick={() => moveTask(setArr, arr, idx, "down")}
+          className="text-lg text-black"
+          aria-label="down"
+        >
+          ↓
+        </button>
+        {extras}
+      </div>
+    </div>
+  );
+};
+
+
+
+
+
+  // outer grid - NOTE: items-start so column heights are independent.
+    return (
+    <div className={`${inter.className} grid grid-cols-1 md:grid-cols-3 gap-6 p-6 items-start`}>
+        
+        {/* Carry Over */}
+        <section className="bg-white rounded-lg p-6 border border-gray-300 shadow-md">
+        <h3 className="text-lg font-bold mb-4 text-center text-black">Carry Over</h3>
+        {(carryOverTasks ?? []).length === 0 ? (
+            <p className="text-sm text-gray-500 text-center">No carry-over tasks</p>
+        ) : (
+            carryOverTasks.map((t, i) =>
+            renderTask(t, i, carryOverTasks, setCarryOverTasks, (
+                <>
+                <button onClick={() => addToToday(t._id!)} className="bg-green-600 text-white px-2 py-1 rounded-md text-sm">Add</button>
+                <button onClick={() => deleteTask(t._id!)} className="text-lg text-red-600">×</button>
+                </>
+            ))
+            )
+        )}
+        </section>
+
+        {/* Today */}
+        <main className="bg-white rounded-lg p-6 border border-gray-300 shadow-md">
         <div className="flex items-center justify-between mb-4">
-            <h2 className="text-xl font-bold text-black">
-            {dateInfo.date || new Date().toLocaleDateString()}
-            </h2>
-            <button
-            onClick={() => setShowForm((s) => !s)}
-            className="text-3xl text-blue-600"
-            aria-label="toggle add form"
-            >
-            +
-            </button>
+            <h2 className="text-xl font-bold text-black">{dateInfo.date || formatLocalDate(new Date())}</h2>
+            <button onClick={() => setShowForm(s => !s)} className="text-3xl text-blue-600">+</button>
         </div>
 
         {showForm && (
             <div className="mb-3 space-y-2">
             <input
                 type="text"
-                placeholder="Task (Title & More Info)"
+                placeholder="Task"
                 value={newTask}
-                onChange={(e) => setNewTask(e.target.value)}
-                onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.shiftKey) {
-                    e.preventDefault();
-                    addTask();
-                }
-                }}
-                className="w-11/12 p-2 border rounded bg-white text-black"
+                onChange={e => setNewTask(e.target.value)}
+                className="w-full p-2 border rounded bg-white text-black"
+            />
+            <input
+                type="text"
+                placeholder="More Info"
+                value={newDescription}
+                onChange={e => setNewDescription(e.target.value)}
+                className="w-full p-2 border rounded bg-white text-black"
             />
             <input
                 type="time"
                 value={dueTime}
-                onChange={(e) => setDueTime(e.target.value)}
-                className="w-11/12 p-2 border rounded bg-white text-black"
+                onChange={e => setDueTime(e.target.value)}
+                className="w-full p-2 border rounded bg-white text-black"
             />
-            <button
-                onClick={addTask}
-                className="w-11/12 bg-blue-600 text-white p-2 rounded-md"
-            >
-                Add Task
-            </button>
+            <button onClick={addTask} className="w-full bg-blue-600 text-white p-2 rounded-md">Add Task</button>
             </div>
         )}
 
-        {todayTasks.length === 0 ? (
+        {(todayTasks ?? []).length === 0 ? (
             <p className="text-sm text-gray-500">No tasks for today</p>
         ) : (
             todayTasks.map((t, i) =>
             renderTask(t, i, todayTasks, setTodayTasks, (
                 <>
-                <input
-                    type="checkbox"
-                    onChange={() => markComplete(t._id, t.clientTempId)}
-                    aria-label="complete"
-                />
-                <button
-                    onClick={() => deleteTask(t._id, t.clientTempId)}
-                    className="text-lg text-red-600"
-                    aria-label="delete"
-                >
-                    ×
-                </button>
+                <input type="checkbox" onChange={() => markComplete(t._id!)} aria-label="complete" />
+                <button onClick={() => deleteTask(t._id!)} className="text-lg text-red-600">×</button>
                 </>
             ))
             )
         )}
         </main>
 
-      {/* Completed */}
-      <section className="bg-white rounded-lg p-6 border border-gray-300 shadow-md">
+        {/* Completed */}
+        <section className="bg-white rounded-lg p-6 border border-gray-300 shadow-md">
         <h3 className="text-lg font-bold mb-4 text-center text-black">Completed</h3>
-        {completedTasks.length === 0 ? (
-          <p className="text-sm text-gray-500 text-center">No completed tasks</p>
+        {(completedTasks ?? []).length === 0 ? (
+            <p className="text-sm text-gray-500 text-center">No completed tasks</p>
         ) : (
-          completedTasks.map((t, i) =>
+            completedTasks.map((t, i) =>
             renderTask(t, i, completedTasks, setCompletedTasks, (
-              <button onClick={() => deleteTask(t._id, t.clientTempId)} className="text-lg text-red-600">×</button>
+                <button onClick={() => deleteTask(t._id!)} className="text-lg text-red-600">×</button>
             ))
-          )
+            )
         )}
-      </section>
+        </section>
     </div>
-  );
+    );
 }
