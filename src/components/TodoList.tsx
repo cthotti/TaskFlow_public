@@ -401,7 +401,6 @@ const renderTask = (
 
 
 
-
   // outer grid - NOTE: items-start so column heights are independent.
     return (
     <div className={`${inter.className} grid grid-cols-1 md:grid-cols-3 gap-6 p-6 items-start`}>
@@ -439,12 +438,12 @@ const renderTask = (
                 onChange={e => setNewTask(e.target.value)}
                 className="w-full p-2 border rounded bg-white text-black"
             />
-            <input
-                type="text"
+            <textarea
                 placeholder="More Info"
                 value={newDescription}
                 onChange={e => setNewDescription(e.target.value)}
                 className="w-full p-2 border rounded bg-white text-black"
+                rows={3}
             />
             <input
                 type="time"
