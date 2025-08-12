@@ -55,10 +55,10 @@ export default function TodoList() {
         allTasks = data.tasks;
       } else {
         // If API already splits lists, use them
-        if (Array.isArray(data.today) || Array.isArray(data.carryOver) || Array.isArray(data.completed)) {
-          setTodayTasks(Array.isArray(data.today) ? data.today : []);
-          setCarryOverTasks(Array.isArray(data.carryOver) ? data.carryOver : []);
-          setCompletedTasks(Array.isArray(data.completed) ? data.completed : []);
+        if (Array.isArray(data.todayTasks) || Array.isArray(data.carryOverTasks) || Array.isArray(data.completedTasks)) {
+          setTodayTasks(Array.isArray(data.todayTasks) ? data.todayTasks : []);
+          setCarryOverTasks(Array.isArray(data.carryOverTasks) ? data.carryOverTasks : []);
+          setCompletedTasks(Array.isArray(data.completedTasks) ? data.completedTasks : []);
           return;
         }
         // fallback: try any other top-level arrays (robust)
@@ -443,7 +443,6 @@ const renderTask = (
                 value={newDescription}
                 onChange={e => setNewDescription(e.target.value)}
                 className="w-full p-2 border rounded bg-white text-black"
-                rows={3}
             />
             <input
                 type="time"
