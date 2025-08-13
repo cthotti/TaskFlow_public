@@ -82,6 +82,7 @@ export default function TodoList() {
             _id: t._id ?? t.id,
             text: t.text ?? "",
             due: t.due,
+            description: t.description,
             color: t.color,
             completed: !!t.completed,
             carryOver: !!t.carryOver,
