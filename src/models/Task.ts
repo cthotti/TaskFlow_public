@@ -2,6 +2,7 @@ import mongoose, { Schema, model, models } from "mongoose";
 
 export interface Task {
   _id?: string;
+  clientTempID?: string;
   text: string;
   due?: string;
   description?: string;

@@ -49,7 +49,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     const task = await Task.create({
       text,
-      description,
+      description: description ?? "",
       due,
       color,
       date: today,
