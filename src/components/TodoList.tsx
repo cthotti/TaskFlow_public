@@ -47,6 +47,7 @@ export default function TodoList() {
 
       // Accept many shapes: { today:[], carryOver:[], completed:[] }
       // or { tasks: [...] } or plain array.
+
       let allTasks: Task[] = [];
 
       if (Array.isArray(data)) {
@@ -105,7 +106,7 @@ export default function TodoList() {
             carry.push({ ...task, carryOver: true });
         } else if (task.carryOver) {
             // 📦 Explicit carry-over flag from DB
-            carry.push(task);
+            carry.push({...task, carryOver: true});
         } else if (task.date === todayStr) {
             // 📅 Today
             today.push(task);
@@ -113,8 +114,7 @@ export default function TodoList() {
             // 🆕 No date? Treat as today
             today.push({ ...task, date: todayStr });
         } else {
-            // 🗓 Future tasks (keep them as carry-over until their date arrives)
-            carry.push(task);
+            carry.push({...task, carryOver: true });
         }
     });
 
