@@ -33,7 +33,21 @@ export default function TodoList() {
     "#D5AAFF", "#FFFACD", "#C1F0F6", "#FFB3BA", "#BAFFC9"
   ];
 
-  const todayISODate = () => new Date().toISOString().split("T")[0];
+  const localISODate = (): string => {
+    const d = new Date();
+    d.setMinutes(d.getMinutes()-d.getTimezoneOffset());
+    return d.toISOString().slice(0,10);
+  };
+
+  const parseYMD = (s?: string): Date | null => {
+    if (!s) return null;
+    const parts = s.split("-");
+    if (parts.length !== 3) return null;
+    const [y, m, d] = parts.map(Number);
+    if (!y || !m || !d) return null;
+    // Construct at local midnight (avoids UTC shift)
+    return new Date(y, m - 1, d);
+  };
 
   // --- fetchTasks: robust categorization ---
   const fetchTasks = async () => {
@@ -73,7 +87,7 @@ export default function TodoList() {
       }
 
       // categorize by flags/date
-      const todayStr = todayISODate();
+      const todayStr = localISODate();
       const today: Task[] = [];
       const carry: Task[] = [];
       const completed: Task[] = [];
@@ -96,10 +110,12 @@ export default function TodoList() {
             return;
         }
 
+
+
         // Determine date comparisons
-        const taskDate = task.date ? new Date(task.date) : null;
-        const todayDate = new Date(todayStr);
-        const isPastDate = taskDate && taskDate < todayDate;
+        const taskDate = parseYMD(task.date);
+        const todayDate = parseYMD(todayStr);
+        const isPastDate = Boolean(taskDate && todayDate && taskDate.getTime() < todayDate.getTime());
 
         if (isPastDate) {
             // ⏪ Past date + not completed => carry over
@@ -161,7 +177,7 @@ export default function TodoList() {
         text: newTask,
         due: dueTime,
         description: newDescription,
-        date: todayISODate(),    // IMPORTANT: ensure server stores date
+        date: localISODate(),    // IMPORTANT: ensure server stores date
         carryOver: false
       };
       const res = await fetch("/api/tasks", {
@@ -237,7 +253,7 @@ export default function TodoList() {
 
   // --- addToToday (carry -> today): patch date & carryOver false and update local lists ---
   const addToToday = async (id: string) => {
-    const todayStr = todayISODate();
+    const todayStr = localISODate();
     try {
       const res = await fetch(`/api/tasks/${id}`, {
         method: "PATCH",
@@ -307,7 +323,7 @@ const renderTask = (
       color: pastelColors[Math.floor(Math.random() * pastelColors.length)],
       completed: false,
       carryOver: false,
-      date: todayISODate(),
+      date: localISODate(),
     };
     const newArr = [...arr.slice(0, idx + 1), newTask, ...arr.slice(idx + 1)];
     setArr(newArr);
