@@ -105,32 +105,28 @@ export default function TodoList() {
         };
 
         if (task.completed) {
-            // ✅ Completed tasks always go to completed
             completed.push(task);
             return;
         }
 
+        // If DB says carryOver = true, always trust that
+        if (task.carryOver) {
+            carry.push(task);
+            return;
+        }
 
-
-        // Determine date comparisons
         const taskDate = parseYMD(task.date);
         const todayDate = parseYMD(todayStr);
         const isPastDate = Boolean(taskDate && todayDate && taskDate.getTime() < todayDate.getTime());
 
         if (isPastDate) {
-            // ⏪ Past date + not completed => carry over
             carry.push({ ...task, carryOver: true });
-        } else if (task.carryOver) {
-            // 📦 Explicit carry-over flag from DB
-            carry.push({...task, carryOver: true});
         } else if (task.date === todayStr) {
-            // 📅 Today
             today.push(task);
         } else if (!task.date) {
-            // 🆕 No date? Treat as today
             today.push({ ...task, date: todayStr });
         } else {
-            carry.push({...task, carryOver: true });
+            carry.push({ ...task, carryOver: true });
         }
     });
 
