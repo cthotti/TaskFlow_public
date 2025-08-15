@@ -8,6 +8,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   if (req.method === "GET") {
     try {
+      const tasks = await Task.find({});
       const today = new Date();
       const yesterday = new Date(today);
       yesterday.setDate(today.getDate() - 1);
@@ -16,19 +17,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       const formatDate = (d: Date) => d.toISOString().split("T")[0];
 
       // Fetch today's tasks
-      const todayTasks = await Task.find({ date: formatDate(today) });
+      const todayTasks = tasks.filter(t => !t.completed && !t.carryOver && t.date === today);
 
       // Fetch yesterday's tasks that are not completed
-      const carryOverTasks = await Task.find({
-        date: formatDate(yesterday),
-        completed: false,
-      });
+      const carryOverTasks = tasks.filter(t => !t.completed && t.carryOver);
 
       // Fetch completed tasks (from today and yesterday)
-      const completedTasks = await Task.find({
-        completed: true,
-        date: { $in: [formatDate(today), formatDate(yesterday)] },
-      });
+      const completedTasks = tasks.filter(t => t.completed);
 
       return res.status(200).json({
         todayTasks,
