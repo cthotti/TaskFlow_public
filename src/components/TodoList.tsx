@@ -73,10 +73,20 @@ const fetchTasks = async () => {
       allTasks = data;
     } else if (Array.isArray(data.tasks)) {
       allTasks = data.tasks;
+    } else if (
+      Array.isArray(data.today) ||
+      Array.isArray(data.carryOver) ||
+      Array.isArray(data.completed)
+    ) {
+      setTodayTasks(data.today ?? []);
+      setCarryOverTasks(data.carryOver ?? []);
+      setCompletedTasks(data.completed ?? []);
+      return; // stop here, don't run fallback
     } else {
       const maybe = Object.values(data).find(v => Array.isArray(v)) as any;
       allTasks = Array.isArray(maybe) ? maybe : [];
     }
+
 
     // Categorize locally
     const todayStr = localISODate();
@@ -92,7 +102,7 @@ const fetchTasks = async () => {
         description: t.description,
         color: t.color,
         completed: !!t.completed,
-        carryOver: !!t.carryOver,
+        carryOver: !!(t.carryOver ?? t.carryover ?? t.carry_over),
         date: t.date,
       };
 
