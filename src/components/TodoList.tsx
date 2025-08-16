@@ -247,10 +247,10 @@ const renderTask = (
   return (
   <div
     key={task._id ?? `${task.text}-${idx}`}
-    className="flex justify-between items-start p-2 mb-2 rounded-md border border-gray-600 bg-[#1E1E1E] w-full"
+    className="flex justify-between items-start px-2 py-1.5 mb-2 rounded border border-gray-600 bg-[#1E1E1E] w-[95%] mx-auto"
   >
-    <div className="flex-1 space-y-1">
-      {/* Task Name Input + Due Date inline */}
+    <div className="flex-1 space-y-0.5">
+      {/* Task Name + Due inline */}
       <div className="flex items-center justify-between">
         <input
           type="text"
@@ -265,46 +265,48 @@ const renderTask = (
               handleSubmitTask();
             }
           }}
-          className="font-medium text-sm text-gray-100 bg-transparent outline-none flex-1"
+          className="font-medium text-[13px] text-gray-100 bg-transparent outline-none flex-1"
           placeholder="Task name"
         />
 
         {task.due && (
-          <span className="ml-2 text-[11px] text-gray-400 whitespace-nowrap">
+          <span className="ml-2 text-[12px] font-medium text-gray-300 whitespace-nowrap">
             {formatTime(task.due)}
           </span>
         )}
       </div>
 
-      {/* ✅ Compact Description */}
-      <textarea
-        value={task.description || ""}
-        onChange={(e) => updateField("description", e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === "Enter" && e.shiftKey) return;
-          if (e.key === "Enter" && !e.shiftKey) {
-            e.preventDefault();
-            handleSubmitTask();
-          }
-        }}
-        className="text-xs text-gray-300 whitespace-pre-line w-full bg-transparent outline-none"
-        placeholder="More info..."
-        rows={1}
-      />
+      {/* Compact description */}
+      {task.description && (
+        <textarea
+          value={task.description}
+          onChange={(e) => updateField("description", e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && e.shiftKey) return;
+            if (e.key === "Enter" && !e.shiftKey) {
+              e.preventDefault();
+              handleSubmitTask();
+            }
+          }}
+          className="text-[12px] text-gray-400 whitespace-pre-line w-full bg-transparent outline-none resize-none"
+          placeholder="More info..."
+          rows={1}
+        />
+      )}
     </div>
 
     {/* Controls */}
     <div className="flex items-center gap-1 ml-1">
       <button
         onClick={() => moveTask(setArr, arr, idx, "up")}
-        className="text-sm text-gray-400 hover:text-gray-200"
+        className="text-base text-gray-300 hover:text-gray-100"
         aria-label="up"
       >
         ↑
       </button>
       <button
         onClick={() => moveTask(setArr, arr, idx, "down")}
-        className="text-sm text-gray-400 hover:text-gray-200"
+        className="text-base text-gray-300 hover:text-gray-100"
         aria-label="down"
       >
         ↓
@@ -316,25 +318,25 @@ const renderTask = (
 };
 
 
-// Outer grid — NO black background wrapper
+// Outer grid with tighter spacing
 return (
-  <div className={`${inter.className} grid grid-cols-1 md:grid-cols-3 gap-6 p-6 items-start`}>
+  <div className={`${inter.className} grid grid-cols-1 md:grid-cols-3 gap-4 p-4 items-start`}>
     
     {/* Carry Over */}
     <section>
-      <h3 className="text-md font-semibold text-white border border-gray-600 rounded-md py-2 px-3 text-center mb-3">
+      <h3 className="text-sm font-semibold text-white border border-gray-600 rounded-md py-1.5 px-2 text-center mb-2 w-[90%] mx-auto">
         Carry Over
       </h3>
       {(carryOverTasks ?? []).length === 0 ? (
-        <p className="text-sm text-gray-500 text-center">No carry-over tasks</p>
+        <p className="text-xs text-gray-500 text-center">No carry-over tasks</p>
       ) : (
         carryOverTasks.map((t, i) =>
           renderTask(t, i, carryOverTasks, setCarryOverTasks, (
             <>
-              <button onClick={() => addToToday(t._id!)} className="text-xs text-gray-200 border border-gray-500 rounded px-2 py-1 hover:bg-gray-700">
+              <button onClick={() => addToToday(t._id!)} className="text-[11px] text-gray-200 border border-gray-500 rounded px-2 py-0.5 hover:bg-gray-700">
                 Add
               </button>
-              <button onClick={() => deleteTask(t._id!)} className="text-lg text-gray-400 hover:text-red-500">
+              <button onClick={() => deleteTask(t._id!)} className="text-base text-gray-400 hover:text-red-500">
                 ×
               </button>
             </>
@@ -345,45 +347,45 @@ return (
 
     {/* Today */}
     <main>
-      <h3 className="text-md font-semibold text-white border border-gray-600 rounded-md py-2 px-3 text-center mb-3 flex items-center justify-between">
+      <h3 className="text-sm font-semibold text-white border border-gray-600 rounded-md py-1.5 px-2 text-center mb-2 flex items-center justify-between w-[90%] mx-auto">
         <span>{dateInfo.date || formatLocalDate(new Date())}</span>
-        <button onClick={() => setShowForm(s => !s)} className="text-xl text-gray-300 hover:text-white">+</button>
+        <button onClick={() => setShowForm(s => !s)} className="text-lg text-gray-300 hover:text-white">+</button>
       </h3>
 
       {showForm && (
-        <div className="mb-3 space-y-2">
+        <div className="mb-2 space-y-1">
           <input
             type="text"
             placeholder="Task"
             value={newTask}
             onChange={e => setNewTask(e.target.value)}
-            className="w-full p-2 border border-gray-600 rounded bg-[#1E1E1E] text-gray-100"
+            className="w-full p-1.5 border border-gray-600 rounded bg-[#1E1E1E] text-gray-100 text-sm"
           />
           <textarea
             placeholder="More Info"
             value={newDescription}
             onChange={e => setNewDescription(e.target.value)}
-            className="w-full p-2 border border-gray-600 rounded bg-[#1E1E1E] text-gray-300"
+            className="w-full p-1.5 border border-gray-600 rounded bg-[#1E1E1E] text-gray-300 text-sm"
             rows={2}
           />
           <input
             type="time"
             value={dueTime}
             onChange={e => setDueTime(e.target.value)}
-            className="w-full p-2 border border-gray-600 rounded bg-[#1E1E1E] text-gray-100"
+            className="w-full p-1.5 border border-gray-600 rounded bg-[#1E1E1E] text-gray-100 text-sm"
           />
-          <button onClick={addTask} className="w-full bg-gray-700 text-gray-100 p-2 rounded-md hover:bg-gray-600">Add Task</button>
+          <button onClick={addTask} className="w-full bg-gray-700 text-gray-100 p-1.5 rounded-md hover:bg-gray-600 text-sm">Add Task</button>
         </div>
       )}
 
       {(todayTasks ?? []).length === 0 ? (
-        <p className="text-sm text-gray-500">No tasks for today</p>
+        <p className="text-xs text-gray-500">No tasks for today</p>
       ) : (
         todayTasks.map((t, i) =>
           renderTask(t, i, todayTasks, setTodayTasks, (
             <>
-              <input type="checkbox" onChange={() => markComplete(t._id!)} aria-label="complete" />
-              <button onClick={() => deleteTask(t._id!)} className="text-sm text-gray-500">×</button>
+              <input type="checkbox" onChange={() => markComplete(t._id!)} aria-label="complete" className="scale-110 accent-gray-500"/>
+              <button onClick={() => deleteTask(t._id!)} className="text-base text-gray-400 hover:text-red-500">×</button>
             </>
           ))
         )
@@ -392,15 +394,15 @@ return (
 
     {/* Completed */}
     <section>
-      <h3 className="text-md font-semibold text-white border border-gray-600 rounded-md py-2 px-3 text-center mb-3">
+      <h3 className="text-sm font-semibold text-white border border-gray-600 rounded-md py-1.5 px-2 text-center mb-2 w-[90%] mx-auto">
         Completed
       </h3>
       {(completedTasks ?? []).length === 0 ? (
-        <p className="text-sm text-gray-500 text-center">No completed tasks</p>
+        <p className="text-xs text-gray-500 text-center">No completed tasks</p>
       ) : (
         completedTasks.map((t, i) =>
           renderTask(t, i, completedTasks, setCompletedTasks, (
-            <button onClick={() => deleteTask(t._id!)} className="text-lg text-gray-400 hover:text-red-500">×</button>
+            <button onClick={() => deleteTask(t._id!)} className="text-base text-gray-400 hover:text-red-500">×</button>
           ))
         )
       )}
