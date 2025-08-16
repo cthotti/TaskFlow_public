@@ -156,7 +156,7 @@ const fetchTasks = async () => {
       due: dueTime,
       description: newDescription,
       date: localISODate(),
-      carryOver: false, // goes into Today
+      carryOver: true, 
     };
 
     const res = await fetch("/api/tasks", {
@@ -172,7 +172,7 @@ const fetchTasks = async () => {
       ...payload,
       ...serverTask,
       _id: serverTask._id ?? serverTask.id ?? `temp-${Date.now()}`,
-      carryOver: false,
+      carryOver: true,
       date: payload.date,
     };
 
@@ -250,7 +250,7 @@ const fetchTasks = async () => {
       const res = await fetch(`/api/tasks/${id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ carryOver: false, date: todayStr }),
+        body: JSON.stringify({ carryOver: true, date: todayStr }),
       });
       if (!res.ok) throw new Error("patch failed " + res.status);
       const data = await res.json().catch(() => null);
