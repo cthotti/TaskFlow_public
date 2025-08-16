@@ -79,7 +79,7 @@ const fetchTasks = async () => {
         due: dueTime,
         description: newDescription,
         date: localISODate(),    // IMPORTANT: ensure server stores date
-        carryOver: false
+        carryOver: true
       };
       const res = await fetch("/api/tasks", {
         method: "POST",
@@ -121,14 +121,14 @@ const fetchTasks = async () => {
     const found = todayTasks.find(t => t._id === id);
     if (found) {
       setTodayTasks(prev => prev.filter(t => t._id !== id));
-      setCompletedTasks(prev => [ { ...found, description: undefined, completed: true }, ...prev ]);
+      setCompletedTasks(prev => [ { ...found, description: undefined, completed: true, carryOver: false}, ...prev ]);
     }
 
     try {
       const res = await fetch(`/api/tasks/${id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ completed: true }),
+        body: JSON.stringify({ completed: true, carryOver: false }),
       });
       if (!res.ok) {
         console.warn("markComplete patch failed", res.status);
@@ -223,7 +223,7 @@ const renderTask = (
       due: "",
       color: pastelColors[Math.floor(Math.random() * pastelColors.length)],
       completed: false,
-      carryOver: false,
+      carryOver: true,
       date: localISODate(),
     };
     const newArr = [...arr.slice(0, idx + 1), newTask, ...arr.slice(idx + 1)];
@@ -247,10 +247,10 @@ const renderTask = (
   return (
     <div
       key={task._id ?? `${task.text}-${idx}`}
-      className="flex justify-between items-center p-3 mb-3 rounded-md border border-gray-300 shadow-sm w-full"
+      className="flex justify-between items-start p-2 mb-2 rounded-md border border-gray-200 shadow-sm w-full"
       style={{ backgroundColor: bg, color: "black" }}
     >
-      <div className="flex-1">
+      <div className="flex-1 space-y-1">
         {/* Task Name Input */}
         <input
           type="text"
@@ -265,7 +265,7 @@ const renderTask = (
               handleSubmitTask();
             }
           }}
-          className="font-semibold text-base text-black w-full bg-transparent outline-none"
+          className="font-medium text-sm text-black w-full bg-transparent outline-none"
           placeholder="Task name"
         />
 
@@ -283,29 +283,29 @@ const renderTask = (
               handleSubmitTask();
             }
           }}
-          className="text-sm mt-1 text-black whitespace-pre-line w-full bg-transparent outline-none"
+          className="text-xs text-black whitespace-pre-line w-full bg-transparent outline-none"
           placeholder="More info..."
-          rows={2}
+          rows={1}
         />
 
         {task.due && (
-          <div className="text-xs mt-1 text-black">
+          <div className="text-[11px] text-gray-700">
             Due: {formatTime(task.due)}
           </div>
         )}
       </div>
 
-      <div className="flex items-center gap-2 ml-2">
+      <div className="flex items-center gap-1 ml-1">
         <button
           onClick={() => moveTask(setArr, arr, idx, "up")}
-          className="text-lg text-black"
+          className="text-sm text-gray-700"
           aria-label="up"
         >
           ↑
         </button>
         <button
           onClick={() => moveTask(setArr, arr, idx, "down")}
-          className="text-lg text-black"
+          className="text-sm text-gray-700"
           aria-label="down"
         >
           ↓
