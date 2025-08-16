@@ -37,7 +37,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   if (req.method === "POST") {
     const { text, due, description } = req.body;
-    const colors = ["#fef3c7", "#dbeafe", "#dcfce7", "#fde2e2", "#fbcfe8"];
+    const colors = ["#8C8C8C"];
     const color = colors[Math.floor(Math.random() * colors.length)];
 
     const today = new Date().toISOString().split("T")[0];

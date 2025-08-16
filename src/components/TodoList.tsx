@@ -245,13 +245,13 @@ const renderTask = (
   };
 
   return (
-    <div
-      key={task._id ?? `${task.text}-${idx}`}
-      className="flex justify-between items-start p-2 mb-2 rounded-md border border-gray-600 bg-[#1E1E1E] w-full"
-      style={{ backgroundColor: bg, color: "black" }}
-    >
-      <div className="flex-1 space-y-1">
-        {/* Task Name Input */}
+  <div
+    key={task._id ?? `${task.text}-${idx}`}
+    className="flex justify-between items-start p-2 mb-2 rounded-md border border-gray-600 bg-[#1E1E1E] w-full"
+  >
+    <div className="flex-1 space-y-1">
+      {/* Task Name Input + Due Date inline */}
+      <div className="flex items-center justify-between">
         <input
           type="text"
           value={task.text}
@@ -265,141 +265,147 @@ const renderTask = (
               handleSubmitTask();
             }
           }}
-          className="font-medium text-sm text-gray-100 w-full bg-transparent outline-none"
+          className="font-medium text-sm text-gray-100 bg-transparent outline-none flex-1"
           placeholder="Task name"
         />
 
-        {/* ✅ Description textarea with Shift+Enter for new line */}
-        <textarea
-          value={task.description || ""}
-          onChange={(e) => updateField("description", e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && e.shiftKey) {
-              // Allow newline
-              return;
-            }
-            if (e.key === "Enter" && !e.shiftKey) {
-              e.preventDefault();
-              handleSubmitTask();
-            }
-          }}
-          className="text-xs text-gray-300 whitespace-pre-line w-full bg-transparent outline-none"
-          placeholder="More info..."
-          rows={1}
-        />
-
         {task.due && (
-          <div className="text-[11px] text-gray-400">
-            Due: {formatTime(task.due)}
-          </div>
+          <span className="ml-2 text-[11px] text-gray-400 whitespace-nowrap">
+            {formatTime(task.due)}
+          </span>
         )}
       </div>
 
-      <div className="flex items-center gap-1 ml-1">
-        <button
-          onClick={() => moveTask(setArr, arr, idx, "up")}
-          className="text-sm text-gray-400: hogver:text-gray-200"
-          aria-label="up"
-        >
-          ↑
-        </button>
-        <button
-          onClick={() => moveTask(setArr, arr, idx, "down")}
-          className="text-sm text-gray-400 hover:text-gray-200"
-          aria-label="down"
-        >
-          ↓
-        </button>
-        {extras}
-      </div>
+      {/* ✅ Compact Description */}
+      <textarea
+        value={task.description || ""}
+        onChange={(e) => updateField("description", e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" && e.shiftKey) return;
+          if (e.key === "Enter" && !e.shiftKey) {
+            e.preventDefault();
+            handleSubmitTask();
+          }
+        }}
+        className="text-xs text-gray-300 whitespace-pre-line w-full bg-transparent outline-none"
+        placeholder="More info..."
+        rows={1}
+      />
     </div>
-  );
+
+    {/* Controls */}
+    <div className="flex items-center gap-1 ml-1">
+      <button
+        onClick={() => moveTask(setArr, arr, idx, "up")}
+        className="text-sm text-gray-400 hover:text-gray-200"
+        aria-label="up"
+      >
+        ↑
+      </button>
+      <button
+        onClick={() => moveTask(setArr, arr, idx, "down")}
+        className="text-sm text-gray-400 hover:text-gray-200"
+        aria-label="down"
+      >
+        ↓
+      </button>
+      {extras}
+    </div>
+  </div>
+);
 };
 
 
+// Outer grid — NO black background wrapper
+return (
+  <div className={`${inter.className} grid grid-cols-1 md:grid-cols-3 gap-6 p-6 items-start`}>
+    
+    {/* Carry Over */}
+    <section>
+      <h3 className="text-md font-semibold text-white border border-gray-600 rounded-md py-2 px-3 text-center mb-3">
+        Carry Over
+      </h3>
+      {(carryOverTasks ?? []).length === 0 ? (
+        <p className="text-sm text-gray-500 text-center">No carry-over tasks</p>
+      ) : (
+        carryOverTasks.map((t, i) =>
+          renderTask(t, i, carryOverTasks, setCarryOverTasks, (
+            <>
+              <button onClick={() => addToToday(t._id!)} className="text-xs text-gray-200 border border-gray-500 rounded px-2 py-1 hover:bg-gray-700">
+                Add
+              </button>
+              <button onClick={() => deleteTask(t._id!)} className="text-lg text-gray-400 hover:text-red-500">
+                ×
+              </button>
+            </>
+          ))
+        )
+      )}
+    </section>
 
+    {/* Today */}
+    <main>
+      <h3 className="text-md font-semibold text-white border border-gray-600 rounded-md py-2 px-3 text-center mb-3 flex items-center justify-between">
+        <span>{dateInfo.date || formatLocalDate(new Date())}</span>
+        <button onClick={() => setShowForm(s => !s)} className="text-xl text-gray-300 hover:text-white">+</button>
+      </h3>
 
-  // outer grid - NOTE: items-start so column heights are independent.
-    return (
-    <div className={`${inter.className} grid grid-cols-1 md:grid-cols-3 gap-4 p-4 items-start bg-[#121212]`}>
-        
-        {/* Carry Over */}
-        <section className="text-md font-semibold text-gray-200 border border-gray-600 rounded-md py-2 px-3 text-center mb-3">
-        <h3 className="text-lg font-bold mb-4 text-center text-black">Carry Over</h3>
-        {(carryOverTasks ?? []).length === 0 ? (
-            <p className="text-sm text-gray-500 text-center">No carry-over tasks</p>
-        ) : (
-            carryOverTasks.map((t, i) =>
-            renderTask(t, i, carryOverTasks, setCarryOverTasks, (
-                <>
-                <button onClick={() => addToToday(t._id!)} className="text-xs text-gray-200 border border-gray-500 rounded px-2 py-1 hover:bg-gray-700">Add</button>
-                <button onClick={() => deleteTask(t._id!)} className="text-lg text-gray-400 hover:text-red-500">×</button>
-                </>
-            ))
-            )
-        )}
-        </section>
+      {showForm && (
+        <div className="mb-3 space-y-2">
+          <input
+            type="text"
+            placeholder="Task"
+            value={newTask}
+            onChange={e => setNewTask(e.target.value)}
+            className="w-full p-2 border border-gray-600 rounded bg-[#1E1E1E] text-gray-100"
+          />
+          <textarea
+            placeholder="More Info"
+            value={newDescription}
+            onChange={e => setNewDescription(e.target.value)}
+            className="w-full p-2 border border-gray-600 rounded bg-[#1E1E1E] text-gray-300"
+            rows={2}
+          />
+          <input
+            type="time"
+            value={dueTime}
+            onChange={e => setDueTime(e.target.value)}
+            className="w-full p-2 border border-gray-600 rounded bg-[#1E1E1E] text-gray-100"
+          />
+          <button onClick={addTask} className="w-full bg-gray-700 text-gray-100 p-2 rounded-md hover:bg-gray-600">Add Task</button>
+        </div>
+      )}
 
-        {/* Today */}
-        <main>
-          <h3 className="text-md font-semibold text-gray-200 border border-gray-600 rounded-md py-2 px-3 text-center mb-3">
-            {dateInfo.date || formatLocalDate(new Date())}
-            <button onClick={() => setShowForm(s => !s)} className="text-3xl text-black-600">+</button>
-          </h3>
+      {(todayTasks ?? []).length === 0 ? (
+        <p className="text-sm text-gray-500">No tasks for today</p>
+      ) : (
+        todayTasks.map((t, i) =>
+          renderTask(t, i, todayTasks, setTodayTasks, (
+            <>
+              <input type="checkbox" onChange={() => markComplete(t._id!)} aria-label="complete" />
+              <button onClick={() => deleteTask(t._id!)} className="text-sm text-gray-500">×</button>
+            </>
+          ))
+        )
+      )}
+    </main>
 
-        {showForm && (
-            <div className="mb-3 space-y-2">
-            <input
-                type="text"
-                placeholder="Task"
-                value={newTask}
-                onChange={e => setNewTask(e.target.value)}
-                className="w-full p-2 border border-gray-600 rounded bg-[#1E1E1E] text-gray-100"
-            />
-            <textarea
-                placeholder="More Info"
-                value={newDescription}
-                onChange={e => setNewDescription(e.target.value)}
-                className="w-full p-2 border border-gray-600 rounded bg-[#1E1E1E] text-gray-300"
-                rows={2}
-            />
-            <input
-                type="time"
-                value={dueTime}
-                onChange={e => setDueTime(e.target.value)}
-                className="w-full p-2 border border-gray-600 rounded bg-[#1E1E1E] text-gray-100"
-            />
-            <button onClick={addTask} className="w-full bg-gray-700 text-gray-100 p-2 rounded-md hover:bg-gray-600">Add Task</button>
-            </div>
-        )}
+    {/* Completed */}
+    <section>
+      <h3 className="text-md font-semibold text-white border border-gray-600 rounded-md py-2 px-3 text-center mb-3">
+        Completed
+      </h3>
+      {(completedTasks ?? []).length === 0 ? (
+        <p className="text-sm text-gray-500 text-center">No completed tasks</p>
+      ) : (
+        completedTasks.map((t, i) =>
+          renderTask(t, i, completedTasks, setCompletedTasks, (
+            <button onClick={() => deleteTask(t._id!)} className="text-lg text-gray-400 hover:text-red-500">×</button>
+          ))
+        )
+      )}
+    </section>
+  </div>
+);
 
-        {(todayTasks ?? []).length === 0 ? (
-            <p className="text-sm text-gray-500">No tasks for today</p>
-        ) : (
-            todayTasks.map((t, i) =>
-            renderTask(t, i, todayTasks, setTodayTasks, (
-                <>
-                <input type="checkbox" onChange={() => markComplete(t._id!)} aria-label="complete" />
-                <button onClick={() => deleteTask(t._id!)} className="text-sm text-gray-500">×</button>
-                </>
-            ))
-            )
-        )}
-        </main>
-
-        {/* Completed */}
-        <section>
-        <h3 className="text-md font-semibold text-gray-200 border border-gray-600 rounded-md py-2 px-3 text-center mb-3">Completed</h3>
-        {(completedTasks ?? []).length === 0 ? (
-            <p className="text-sm text-gray-500 text-center">No completed tasks</p>
-        ) : (
-            completedTasks.map((t, i) =>
-            renderTask(t, i, completedTasks, setCompletedTasks, (
-                <button onClick={() => deleteTask(t._id!)} className="text-lg text-gray-400 hover:text-red-500">×</button>
-            ))
-            )
-        )}
-        </section>
-    </div>
-    );
 }
