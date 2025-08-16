@@ -247,7 +247,7 @@ const renderTask = (
   return (
     <div
       key={task._id ?? `${task.text}-${idx}`}
-      className="flex justify-between items-start p-2 mb-2 rounded-md border border-gray-200 shadow-sm w-full"
+      className="flex justify-between items-start p-2 mb-2 rounded-md border border-gray-600 bg-[#1E1E1E] w-full"
       style={{ backgroundColor: bg, color: "black" }}
     >
       <div className="flex-1 space-y-1">
@@ -265,7 +265,7 @@ const renderTask = (
               handleSubmitTask();
             }
           }}
-          className="font-medium text-sm text-black w-full bg-transparent outline-none"
+          className="font-medium text-sm text-gray-100 w-full bg-transparent outline-none"
           placeholder="Task name"
         />
 
@@ -283,13 +283,13 @@ const renderTask = (
               handleSubmitTask();
             }
           }}
-          className="text-xs text-black whitespace-pre-line w-full bg-transparent outline-none"
+          className="text-xs text-gray-300 whitespace-pre-line w-full bg-transparent outline-none"
           placeholder="More info..."
           rows={1}
         />
 
         {task.due && (
-          <div className="text-[11px] text-gray-700">
+          <div className="text-[11px] text-gray-400">
             Due: {formatTime(task.due)}
           </div>
         )}
@@ -298,14 +298,14 @@ const renderTask = (
       <div className="flex items-center gap-1 ml-1">
         <button
           onClick={() => moveTask(setArr, arr, idx, "up")}
-          className="text-sm text-gray-700"
+          className="text-sm text-gray-400: hogver:text-gray-200"
           aria-label="up"
         >
           ↑
         </button>
         <button
           onClick={() => moveTask(setArr, arr, idx, "down")}
-          className="text-sm text-gray-700"
+          className="text-sm text-gray-400 hover:text-gray-200"
           aria-label="down"
         >
           ↓
@@ -321,10 +321,10 @@ const renderTask = (
 
   // outer grid - NOTE: items-start so column heights are independent.
     return (
-    <div className={`${inter.className} grid grid-cols-1 md:grid-cols-3 gap-6 p-6 items-start`}>
+    <div className={`${inter.className} grid grid-cols-1 md:grid-cols-3 gap-4 p-4 items-start bg-[#121212]`}>
         
         {/* Carry Over */}
-        <section className="bg-white rounded-lg p-6 border border-gray-300 shadow-md">
+        <section className="text-md font-semibold text-gray-200 border border-gray-600 rounded-md py-2 px-3 text-center mb-3">
         <h3 className="text-lg font-bold mb-4 text-center text-black">Carry Over</h3>
         {(carryOverTasks ?? []).length === 0 ? (
             <p className="text-sm text-gray-500 text-center">No carry-over tasks</p>
@@ -332,8 +332,8 @@ const renderTask = (
             carryOverTasks.map((t, i) =>
             renderTask(t, i, carryOverTasks, setCarryOverTasks, (
                 <>
-                <button onClick={() => addToToday(t._id!)} className="bg-green-600 text-white px-2 py-1 rounded-md text-sm">Add</button>
-                <button onClick={() => deleteTask(t._id!)} className="text-lg text-red-600">×</button>
+                <button onClick={() => addToToday(t._id!)} className="text-xs text-gray-200 border border-gray-500 rounded px-2 py-1 hover:bg-gray-700">Add</button>
+                <button onClick={() => deleteTask(t._id!)} className="text-lg text-gray-400 hover:text-red-500">×</button>
                 </>
             ))
             )
@@ -341,11 +341,11 @@ const renderTask = (
         </section>
 
         {/* Today */}
-        <main className="bg-white rounded-lg p-6 border border-gray-300 shadow-md">
-        <div className="flex items-center justify-between mb-4">
-            <h2 className="text-xl font-bold text-black">{dateInfo.date || formatLocalDate(new Date())}</h2>
-            <button onClick={() => setShowForm(s => !s)} className="text-3xl text-blue-600">+</button>
-        </div>
+        <main>
+          <h3 className="text-md font-semibold text-gray-200 border border-gray-600 rounded-md py-2 px-3 text-center mb-3">
+            {dateInfo.date || formatLocalDate(new Date())}
+            <button onClick={() => setShowForm(s => !s)} className="text-3xl text-black-600">+</button>
+          </h3>
 
         {showForm && (
             <div className="mb-3 space-y-2">
@@ -354,22 +354,22 @@ const renderTask = (
                 placeholder="Task"
                 value={newTask}
                 onChange={e => setNewTask(e.target.value)}
-                className="w-full p-2 border rounded bg-white text-black"
+                className="w-full p-2 border border-gray-600 rounded bg-[#1E1E1E] text-gray-100"
             />
             <textarea
                 placeholder="More Info"
                 value={newDescription}
                 onChange={e => setNewDescription(e.target.value)}
-                className="w-full p-2 border rounded bg-white text-black"
-                rows={3}
+                className="w-full p-2 border border-gray-600 rounded bg-[#1E1E1E] text-gray-300"
+                rows={2}
             />
             <input
                 type="time"
                 value={dueTime}
                 onChange={e => setDueTime(e.target.value)}
-                className="w-full p-2 border rounded bg-white text-black"
+                className="w-full p-2 border border-gray-600 rounded bg-[#1E1E1E] text-gray-100"
             />
-            <button onClick={addTask} className="w-full bg-blue-600 text-white p-2 rounded-md">Add Task</button>
+            <button onClick={addTask} className="w-full bg-gray-700 text-gray-100 p-2 rounded-md hover:bg-gray-600">Add Task</button>
             </div>
         )}
 
@@ -380,7 +380,7 @@ const renderTask = (
             renderTask(t, i, todayTasks, setTodayTasks, (
                 <>
                 <input type="checkbox" onChange={() => markComplete(t._id!)} aria-label="complete" />
-                <button onClick={() => deleteTask(t._id!)} className="text-lg text-red-600">×</button>
+                <button onClick={() => deleteTask(t._id!)} className="text-sm text-gray-500">×</button>
                 </>
             ))
             )
@@ -388,14 +388,14 @@ const renderTask = (
         </main>
 
         {/* Completed */}
-        <section className="bg-white rounded-lg p-6 border border-gray-300 shadow-md">
-        <h3 className="text-lg font-bold mb-4 text-center text-black">Completed</h3>
+        <section>
+        <h3 className="text-md font-semibold text-gray-200 border border-gray-600 rounded-md py-2 px-3 text-center mb-3">Completed</h3>
         {(completedTasks ?? []).length === 0 ? (
             <p className="text-sm text-gray-500 text-center">No completed tasks</p>
         ) : (
             completedTasks.map((t, i) =>
             renderTask(t, i, completedTasks, setCompletedTasks, (
-                <button onClick={() => deleteTask(t._id!)} className="text-lg text-red-600">×</button>
+                <button onClick={() => deleteTask(t._id!)} className="text-lg text-gray-400 hover:text-red-500">×</button>
             ))
             )
         )}
