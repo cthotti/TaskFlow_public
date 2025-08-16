@@ -53,18 +53,118 @@ export default function TodoList() {
   // --- fetchTasks: robust categorization ---
 
 const fetchTasks = async () => {
-  const res = await fetch("/api/tasks");
-  const data = await res.json();
-  setTodayTasks(data.todayTasks);
-  setCarryOverTasks(data.carryOverTasks);
-  setCompletedTasks(data.completedTasks);
+  try {
+      const res = await fetch("/api/tasks", { cache: "no-store" });
+      if (!res.ok) throw new Error(`GET /api/tasks ${res.status}`);
+      const data = await res.json();
+
+      // If the API already gives split buckets, use them directly (support multiple names)
+      if (
+        Array.isArray((data as any).todayTasks) ||
+        Array.isArray((data as any).carryOverTasks) ||
+        Array.isArray((data as any).completedTasks) ||
+        Array.isArray((data as any).today) ||
+        Array.isArray((data as any).carryOver) ||
+        Array.isArray((data as any).completed)
+      ) {
+        setTodayTasks((data as any).todayTasks ?? (data as any).today ?? []);
+        setCarryOverTasks(
+          (data as any).carryOverTasks ?? (data as any).carryOver ?? []
+        );
+        setCompletedTasks(
+          (data as any).completedTasks ?? (data as any).completed ?? []
+        );
+        return;
+      }
+
+      // Otherwise collect a flat list from common shapes
+      let all: any[] = [];
+      if (Array.isArray(data)) {
+        all = data;
+      } else if (Array.isArray((data as any).tasks)) {
+        all = (data as any).tasks;
+      } else {
+        const maybe = Object.values(data).find(Array.isArray) as any[] | undefined;
+        all = maybe ?? [];
+      }
+
+      // Normalize fields and categorize
+      const todayStr = localISODate();
+      const today: Task[] = [];
+      const carry: Task[] = [];
+      const completed: Task[] = [];
+
+      (all as any[]).forEach((t) => {
+        const task: Task = {
+          _id: t._id ?? t.id,
+          text: t.text ?? "",
+          due: t.due ?? t.time,
+          description: t.description ?? t.desc,
+          color: t.color,
+          completed: !!t.completed,
+          carryOver: !!t.carryOver,
+          date: t.date,
+        };
+
+        if (task.completed) {
+          completed.push(task);
+          return;
+        }
+
+        // explicit carryOver from DB wins
+        if (task.carryOver) {
+          carry.push(task);
+          return;
+        }
+
+        const taskDate = parseYMD(task.date);
+        const todayDate = parseYMD(todayStr);
+        const isPast =
+          !!taskDate && !!todayDate && taskDate.getTime() < todayDate.getTime();
+
+        if (isPast) {
+          carry.push({ ...task, carryOver: true });
+        } else if (task.date === todayStr) {
+          today.push(task);
+        } else if (!task.date) {
+          // no date? treat as today
+          today.push({ ...task, date: todayStr });
+        } else {
+          // future-dated or unrecognized -> carry over
+          carry.push({ ...task, carryOver: true });
+        }
+      });
+
+      // sort today's by time
+      today.sort((a, b) => (a.due ?? "").localeCompare(b.due ?? ""));
+
+      setTodayTasks(today);
+      setCarryOverTasks(carry);
+      setCompletedTasks(completed);
+    } catch (e) {
+      console.error("fetchTasks failed:", e);
+      setTodayTasks([]);
+      setCarryOverTasks([]);
+      setCompletedTasks([]);
+    }
 };
 
   // Try python backend /date, fallback to client date
   const fetchDate = async () => {
-    const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/date`);
-    const data = await res.json();
-    setDateInfo(data)
+    try {
+      const base = process.env.NEXT_PUBLIC_API_URL;
+      if (base) {
+        const res = await fetch(`${base}/date`, { cache: "no-store" });
+        if (res.ok) {
+          const d = await res.json();
+          setDateInfo({ date: d.date ?? formatLocalDate(new Date()) });
+          return;
+        }
+      }
+    } catch {
+      // ignore
+    }
+    setDateInfo({ date: formatLocalDate(new Date()) });
   };
 
   const formatLocalDate = (d: Date) =>
@@ -78,21 +178,39 @@ const fetchTasks = async () => {
         text: newTask,
         due: dueTime,
         description: newDescription,
-        date: localISODate(),    // IMPORTANT: ensure server stores date
-        carryOver: true
+        date: localISODate(),
+        carryOver: false, // new tasks start in Today
       };
+
       const res = await fetch("/api/tasks", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
       if (!res.ok) throw new Error("add task failed " + res.status);
-      const data = await res.json();
-      const newT: Task = data.task ?? data;
-      setTodayTasks(prev => {
-        const updated = [...prev, newT];
-        return updated.sort((a,b) => (a.due ?? "").localeCompare(b.due ?? ""));
+
+      // optimistic local add (works even if API returns slightly different shape)
+      const created = await res.json().catch(() => null);
+      const newT: Task = (created?.task ?? created ?? payload) as Task;
+
+      setTodayTasks((prev) => {
+        const updated = [
+          ...prev,
+          {
+            ...newT,
+            _id: newT._id ?? newT._id ?? `temp-${Date.now()}`,
+            date: payload.date,
+            carryOver: false,
+          },
+        ];
+        return updated.sort((a, b) =>
+          (a.due ?? "").localeCompare(b.due ?? "")
+        );
       });
+
+      // ensure client matches server canonical state
+      fetchTasks();
+
       setNewTask("");
       setNewDescription("");
       setDueTime("");
