@@ -163,39 +163,45 @@ export default function TodoList() {
   };
 
   return (
-  <div className={`${inter.className} grid grid-cols-1 md:grid-cols-3 gap-6 p-6 items-start`}>
+  <div className={`${inter.className} grid grid-cols-1 md:grid-cols-3 gap-4 p-6 items-start`}>
     {/* Carry Over */}
-    <section className="flex flex-col items-center w-80">
-      <h2 className="w-full text-center text-lg font-bold text-white border border-gray-600 rounded-md py-2 mb-3">
+    <section className="flex flex-col items-center w-72">
+      <h2 className="w-full text-center text-lg font-bold text-white border border-gray-600 rounded-md py-2">
         Carry Over
       </h2>
-      {(carryOverTasks ?? []).length === 0 ? (
-        <p className="text-sm text-gray-500 text-center">No carry-over tasks</p>
-      ) : (
-        (carryOverTasks ?? []).map((t, i) =>
-          renderTask(t, i, carryOverTasks, setCarryOverTasks, (
-            <>
-              <button
-                onClick={() => addToToday(t._id!)}
-                className="text-gray-400 hover:text-white text-sm"
-              >
-                Add
-              </button>
-              <button
-                onClick={() => deleteTask(t._id!)}
-                className="text-gray-400 hover:text-white text-sm"
-              >
-                ×
-              </button>
-            </>
-          ))
-        )
-      )}
+      <div className="w-full mt-2 space-y-2">
+        {(carryOverTasks ?? []).length === 0 ? (
+          <p className="text-sm text-gray-500 text-center">No carry-over tasks</p>
+        ) : (
+          (carryOverTasks ?? []).map((t, i) =>
+            renderTask(
+              { ...t, color: "#8C8C8C" }, // enforce background color
+              i,
+              carryOverTasks,
+              setCarryOverTasks,
+              <>
+                <button
+                  onClick={() => addToToday(t._id!)}
+                  className="text-gray-300 hover:text-white text-sm"
+                >
+                  Add
+                </button>
+                <button
+                  onClick={() => deleteTask(t._id!)}
+                  className="text-gray-300 hover:text-white text-sm"
+                >
+                  ×
+                </button>
+              </>
+            )
+          )
+        )}
+      </div>
     </section>
 
     {/* Today */}
-    <main className="flex flex-col items-center w-80">
-      <div className="w-full flex justify-between items-center border border-gray-600 rounded-md px-3 py-2 mb-3">
+    <main className="flex flex-col items-center w-72">
+      <div className="w-full flex justify-between items-center border border-gray-600 rounded-md px-3 py-2">
         <h2 className="text-lg font-bold text-white">{dateInfo.date}</h2>
         <button
           onClick={() => setShowForm(!showForm)}
@@ -206,7 +212,7 @@ export default function TodoList() {
       </div>
 
       {showForm && (
-        <div className="mb-4 space-y-2 w-full">
+        <div className="mt-2 mb-4 space-y-2 w-full">
           <input
             type="text"
             placeholder="Task"
@@ -236,48 +242,60 @@ export default function TodoList() {
         </div>
       )}
 
-      {todayTasks.length === 0 ? (
-        <p className="text-sm text-gray-500">No tasks for today</p>
-      ) : (
-        todayTasks.map((t, i) =>
-          renderTask(t, i, todayTasks, setTodayTasks, (
-            <>
-              <input
-                type="checkbox"
-                onChange={() => markComplete(t._id!)}
-                className="w-4 h-4 accent-gray-500"
-              />
-              <button
-                onClick={() => deleteTask(t._id!)}
-                className="text-gray-400 hover:text-white text-sm"
-              >
-                ×
-              </button>
-            </>
-          ))
-        )
-      )}
+      <div className="w-full mt-2 space-y-2">
+        {todayTasks.length === 0 ? (
+          <p className="text-sm text-gray-500">No tasks for today</p>
+        ) : (
+          todayTasks.map((t, i) =>
+            renderTask(
+              { ...t, color: "#8C8C8C" },
+              i,
+              todayTasks,
+              setTodayTasks,
+              <>
+                <input
+                  type="checkbox"
+                  onChange={() => markComplete(t._id!)}
+                  className="w-4 h-4 accent-gray-500"
+                />
+                <button
+                  onClick={() => deleteTask(t._id!)}
+                  className="text-gray-300 hover:text-white text-sm"
+                >
+                  ×
+                </button>
+              </>
+            )
+          )
+        )}
+      </div>
     </main>
 
     {/* Completed */}
-    <section className="flex flex-col items-center w-80">
-      <h2 className="w-full text-center text-lg font-bold text-white border border-gray-600 rounded-md py-2 mb-3">
+    <section className="flex flex-col items-center w-72">
+      <h2 className="w-full text-center text-lg font-bold text-white border border-gray-600 rounded-md py-2">
         Completed
       </h2>
-      {completedTasks.length === 0 ? (
-        <p className="text-sm text-gray-500 text-center">No completed tasks</p>
-      ) : (
-        completedTasks.map((t, i) =>
-          renderTask(t, i, completedTasks, setCompletedTasks, (
-            <button
-              onClick={() => deleteTask(t._id!)}
-              className="text-gray-400 hover:text-white text-sm"
-            >
-              ×
-            </button>
-          ))
-        )
-      )}
+      <div className="w-full mt-2 space-y-2">
+        {completedTasks.length === 0 ? (
+          <p className="text-sm text-gray-500 text-center">No completed tasks</p>
+        ) : (
+          completedTasks.map((t, i) =>
+            renderTask(
+              { ...t, color: "#8C8C8C" },
+              i,
+              completedTasks,
+              setCompletedTasks,
+              <button
+                onClick={() => deleteTask(t._id!)}
+                className="text-gray-300 hover:text-white text-sm"
+              >
+                ×
+              </button>
+            )
+          )
+        )}
+      </div>
     </section>
   </div>
 );
