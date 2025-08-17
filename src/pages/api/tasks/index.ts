@@ -13,21 +13,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       const yesterday = new Date(today);
       yesterday.setDate(today.getDate() - 1);
 
-      // Format dates for comparison
-      const formatDate = (d: Date) => d.toISOString().split("T")[0];
-
       // Fetch today's tasks
       const todayTasks = tasks.filter(t => !t.completed && !t.carryOver && t.date === today);
-
-      // Fetch yesterday's tasks that are not completed
-      const carryOverTasks = tasks.filter(t => !t.completed && t.carryOver);
 
       // Fetch completed tasks (from today and yesterday)
       const completedTasks = tasks.filter(t => t.completed);
 
       return res.status(200).json({
         todayTasks,
-        carryOverTasks,
         completedTasks,
       });
     } catch (error) {

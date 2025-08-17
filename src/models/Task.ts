@@ -9,7 +9,6 @@ export interface Task {
   color?: string;
   date?: string;
   completed?: boolean;
-  carryOver?: boolean;
 }
 
 const TaskSchema = new Schema<Task>({
@@ -19,7 +18,6 @@ const TaskSchema = new Schema<Task>({
   date: { type: String },
   description: { type: String},
   completed: { type: Boolean, default: false },
-  carryOver: { type: Boolean, default: false }
 });
 
 export default models.Task || model<Task>("Task", TaskSchema);
