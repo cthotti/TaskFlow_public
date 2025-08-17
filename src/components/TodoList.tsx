@@ -52,98 +52,11 @@ export default function TodoList() {
   // --- fetchTasks: robust categorization ---
 
 const fetchTasks = async () => {
-  try {
-      const res = await fetch("/api/tasks");
-      if (!res.ok) {
-        console.warn("fetch /api/tasks returned non-ok:", res.status);
-        return;
-      }
-      const data = await res.json();
-
-      // Accept many shapes: { today:[], carryOver:[], completed:[] }
-      // or { tasks: [...] } or plain array.
-
-      let allTasks: Task[] = [];
-
-      if (Array.isArray(data)) {
-        allTasks = data;
-      } else if (Array.isArray(data.tasks)) {
-        allTasks = data.tasks;
-      } else {
-        // If API already splits lists, use them
-        if (Array.isArray(data.today) || Array.isArray(data.carryOver) || Array.isArray(data.completed)) {
-          setTodayTasks(Array.isArray(data.today) ? data.today : []);
-          setCarryOverTasks(Array.isArray(data.carryOver) ? data.carryOver : []);
-          setCompletedTasks(Array.isArray(data.completed) ? data.completed : []);
-          return;
-        }
-        // fallback: try any other top-level arrays (robust)
-        const maybe = Object.values(data).find(v => Array.isArray(v)) as any;
-        if (Array.isArray(maybe)) {
-          allTasks = maybe;
-        } else {
-          // as last resort, treat data as empty
-          allTasks = [];
-        }
-      }
-
-      // categorize by flags/date
-      const todayStr = localISODate();
-      const today: Task[] = [];
-      const carry: Task[] = [];
-      const completed: Task[] = [];
-
-    allTasks.forEach((t: any) => {
-        const task: Task = {
-            _id: t._id ?? t.id,
-            text: t.text ?? "",
-            due: t.due,
-            description: t.description,
-            color: t.color,
-            completed: !!t.completed,
-            carryOver: !!t.carryOver,
-            date: t.date,
-        };
-
-        if (task.completed) {
-            completed.push(task);
-            return;
-        }
-
-        // If DB says carryOver = true, always trust that
-        if (task.carryOver) {
-            carry.push(task);
-            return;
-        }
-
-        const taskDate = parseYMD(task.date);
-        const todayDate = parseYMD(todayStr);
-        const isPastDate = Boolean(taskDate && todayDate && taskDate.getTime() < todayDate.getTime());
-
-        if (isPastDate) {
-            carry.push({ ...task, carryOver: true });
-        } else if (task.date === todayStr) {
-            today.push(task);
-        } else if (!task.date) {
-            today.push({ ...task, date: todayStr });
-        } else {
-            carry.push({ ...task, carryOver: true });
-        }
-    });
-
-
-      // sort today's tasks by due
-      const sortByDue = (arr: Task[]) => arr.sort((a, b) => (a.due ?? "").localeCompare(b.due ?? ""));
-
-      setTodayTasks(sortByDue(today));
-      setCarryOverTasks(carry);
-      setCompletedTasks(completed);
-    } catch (err) {
-      console.error("Failed to fetch tasks:", err);
-      setTodayTasks([]);
-      setCarryOverTasks([]);
-      setCompletedTasks([]);
-    }
+  const res = await fetch("/api/tasks");
+    const data = await res.json();
+    setTodayTasks(data.today);
+    setCarryOverTasks(data.carryOver);
+    setCompletedTasks(data.completed);
 };
 
   // Try python backend /date, fallback to client date
@@ -159,33 +72,17 @@ const fetchTasks = async () => {
   // --- addTask: send date so it stays in Today on reload ---
   const addTask = async () => {
     if (!newTask || !dueTime) return;
-    try {
-      const payload = {
-        text: newTask,
-        due: dueTime,
-        description: newDescription,
-        date: localISODate(),    // IMPORTANT: ensure server stores date
-        carryOver: false
-      };
-      const res = await fetch("/api/tasks", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-      if (!res.ok) throw new Error("add task failed " + res.status);
-      const data = await res.json();
-      const newT: Task = data.task ?? data;
-      setTodayTasks(prev => {
-        const updated = [...prev, newT];
-        return updated.sort((a,b) => (a.due ?? "").localeCompare(b.due ?? ""));
-      });
-      setNewTask("");
-      setNewDescription("");
-      setDueTime("");
-      setShowForm(false);
-    } catch (err) {
-      console.error("Failed to add task:", err);
-    }
+    const res = await fetch("/api/tasks", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: newTask, due: dueTime }),
+    });
+    const data = await res.json();
+    setTodayTasks([...todayTasks, data.task]);
+    setNewTask("");
+    setDueTime("");
+    setShowForm(false);
+    setNewDescription("");
   };
 
   // --- deleteTask safely updates only lists that contain the id ---
@@ -300,27 +197,9 @@ const renderTask = (
 ) => {
   const bg = task.color ?? pastelColors[(task.text?.length ?? 0) % pastelColors.length];
 
-  // Function to add a new blank task row (✅ no prev updater)
-  const handleAddNewTask = () => {
-    const newTask: Task = {
-      _id: `temp-${Date.now()}`,
-      text: "",
-      description: "",
-      due: "",
-      color: pastelColors[Math.floor(Math.random() * pastelColors.length)],
-      completed: false,
-      carryOver: false,
-      date: localISODate(),
-    };
-    const newArr = [...arr.slice(0, idx + 1), newTask, ...arr.slice(idx + 1)];
-    setArr(newArr);
-  };
-
-  // Function to submit the task
-  const handleSubmitTask = () => {
-    // TODO: Replace with your actual save/submit logic
-    console.log("Submitting task:", task);
-  };
+  // ✅ Removed handleAddNewTask entirely
+  // ✅ Removed handleSubmitTask placeholder
+  // ✅ Simplified keydown handlers so they no longer block normal typing
 
   // Helper to update a single field
   const updateField = (field: keyof Task, value: any) => {
@@ -342,31 +221,18 @@ const renderTask = (
           type="text"
           value={task.text}
           onChange={(e) => updateField("text", e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "+" && e.code === "Enter") {
-              e.preventDefault();
-              handleAddNewTask();
-            } else if (e.key === "Enter" && !e.shiftKey) {
-              e.preventDefault();
-              handleSubmitTask();
-            }
-          }}
           className="font-medium text-sm text-black w-full bg-transparent outline-none"
           placeholder="Task name"
         />
 
-        {/* ✅ Description textarea with Shift+Enter for new line */}
+        {/* ✅ Description textarea with Shift+Enter for newline */}
         <textarea
           value={task.description || ""}
           onChange={(e) => updateField("description", e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === "Enter" && e.shiftKey) {
-              // Allow newline
-              return;
-            }
             if (e.key === "Enter" && !e.shiftKey) {
+              // prevent accidental submits
               e.preventDefault();
-              handleSubmitTask();
             }
           }}
           className="text-xs text-black whitespace-pre-line w-full bg-transparent outline-none"
@@ -401,9 +267,6 @@ const renderTask = (
     </div>
   );
 };
-
-
-
 
   // outer grid - NOTE: items-start so column heights are independent.
     return (
