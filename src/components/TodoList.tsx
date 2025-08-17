@@ -79,7 +79,7 @@ const fetchTasks = async () => {
         due: dueTime,
         description: newDescription,
         date: localISODate(),    // IMPORTANT: ensure server stores date
-        carryOver: true
+        carryOver: false
       };
       const res = await fetch("/api/tasks", {
         method: "POST",
@@ -223,7 +223,7 @@ const renderTask = (
       due: "",
       color: pastelColors[Math.floor(Math.random() * pastelColors.length)],
       completed: false,
-      carryOver: true,
+      carryOver: false,
       date: localISODate(),
     };
     const newArr = [...arr.slice(0, idx + 1), newTask, ...arr.slice(idx + 1)];
