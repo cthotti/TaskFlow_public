@@ -163,45 +163,45 @@ export default function TodoList() {
   };
 
   return (
-  <div className={`${inter.className} grid grid-cols-1 md:grid-cols-3 gap-4 p-6 items-start`}>
+  <div className={`${inter.className} grid grid-cols-1 md:grid-cols-3 gap-6 p-6`}>
     {/* Carry Over */}
-    <section className="flex flex-col items-center w-72">
-      <h2 className="w-full text-center text-lg font-bold text-white border border-gray-600 rounded-md py-2">
+    <section className="flex flex-col items-start w-full max-w-md mx-auto">
+      <h2 className="w-full text-center text-lg font-bold text-white border border-gray-600 rounded-md py-2 mb-2">
         Carry Over
       </h2>
-      <div className="w-full mt-2 space-y-2">
+      <div className="w-full space-y-3">
         {(carryOverTasks ?? []).length === 0 ? (
           <p className="text-sm text-gray-500 text-center">No carry-over tasks</p>
         ) : (
           (carryOverTasks ?? []).map((t, i) =>
-            renderTask(
-              { ...t, color: "#8C8C8C" }, // enforce background color
-              i,
-              carryOverTasks,
-              setCarryOverTasks,
-              <>
-                <button
-                  onClick={() => addToToday(t._id!)}
-                  className="text-gray-300 hover:text-white text-sm"
-                >
-                  Add
-                </button>
-                <button
-                  onClick={() => deleteTask(t._id!)}
-                  className="text-gray-300 hover:text-white text-sm"
-                >
-                  ×
-                </button>
-              </>
-            )
+            <div
+              key={t._id}
+              className="w-full bg-[#8C8C8C] rounded-md p-3 text-white flex flex-col"
+            >
+              {/* Title + Due + Controls */}
+              <div className="flex justify-between items-center">
+                <span className="font-semibold text-base">{t.text}</span>
+                <div className="flex items-center space-x-2 text-sm text-gray-200">
+                  {t.due && <span>{formatTime(t.due)}</span>}
+                  <button onClick={() => moveTask(carryOverTasks, setCarryOverTasks, i, "up")}>↑</button>
+                  <button onClick={() => moveTask(carryOverTasks, setCarryOverTasks, i, "down")}>↓</button>
+                  <button onClick={() => addToToday(t._id!)}>☐</button>
+                  <button onClick={() => deleteTask(t._id!)}>×</button>
+                </div>
+              </div>
+              {/* Description */}
+              {t.description && (
+                <p className="text-sm text-gray-200 mt-1">{t.description}</p>
+              )}
+            </div>
           )
         )}
       </div>
     </section>
 
     {/* Today */}
-    <main className="flex flex-col items-center w-72">
-      <div className="w-full flex justify-between items-center border border-gray-600 rounded-md px-3 py-2">
+    <main className="flex flex-col items-start w-full max-w-md mx-auto">
+      <div className="w-full flex justify-between items-center border border-gray-600 rounded-md px-3 py-2 mb-2">
         <h2 className="text-lg font-bold text-white">{dateInfo.date}</h2>
         <button
           onClick={() => setShowForm(!showForm)}
@@ -212,7 +212,7 @@ export default function TodoList() {
       </div>
 
       {showForm && (
-        <div className="mt-2 mb-4 space-y-2 w-full">
+        <div className="mb-4 space-y-2 w-full">
           <input
             type="text"
             placeholder="Task"
@@ -242,57 +242,65 @@ export default function TodoList() {
         </div>
       )}
 
-      <div className="w-full mt-2 space-y-2">
+      <div className="w-full space-y-3">
         {todayTasks.length === 0 ? (
           <p className="text-sm text-gray-500">No tasks for today</p>
         ) : (
           todayTasks.map((t, i) =>
-            renderTask(
-              { ...t, color: "#8C8C8C" },
-              i,
-              todayTasks,
-              setTodayTasks,
-              <>
-                <input
-                  type="checkbox"
-                  onChange={() => markComplete(t._id!)}
-                  className="w-4 h-4 accent-gray-500"
-                />
-                <button
-                  onClick={() => deleteTask(t._id!)}
-                  className="text-gray-300 hover:text-white text-sm"
-                >
-                  ×
-                </button>
-              </>
-            )
+            <div
+              key={t._id}
+              className="w-full bg-[#8C8C8C] rounded-md p-3 text-white flex flex-col"
+            >
+              <div className="flex justify-between items-center">
+                <span className="font-semibold text-base">{t.text}</span>
+                <div className="flex items-center space-x-2 text-sm text-gray-200">
+                  {t.due && <span>{formatTime(t.due)}</span>}
+                  <button onClick={() => moveTask(todayTasks, setTodayTasks, i, "up")}>↑</button>
+                  <input
+                    type="checkbox"
+                    onChange={() => markComplete(t._id!)}
+                    className="w-4 h-4 accent-gray-500"
+                  />
+                  <button onClick={() => moveTask(todayTasks, setTodayTasks, i, "down")}>↓</button>
+                  <button onClick={() => deleteTask(t._id!)}>×</button>
+                </div>
+              </div>
+              {t.description && (
+                <p className="text-sm text-gray-200 mt-1">{t.description}</p>
+              )}
+            </div>
           )
         )}
       </div>
     </main>
 
     {/* Completed */}
-    <section className="flex flex-col items-center w-72">
-      <h2 className="w-full text-center text-lg font-bold text-white border border-gray-600 rounded-md py-2">
+    <section className="flex flex-col items-start w-full max-w-md mx-auto">
+      <h2 className="w-full text-center text-lg font-bold text-white border border-gray-600 rounded-md py-2 mb-2">
         Completed
       </h2>
-      <div className="w-full mt-2 space-y-2">
+      <div className="w-full space-y-3">
         {completedTasks.length === 0 ? (
           <p className="text-sm text-gray-500 text-center">No completed tasks</p>
         ) : (
           completedTasks.map((t, i) =>
-            renderTask(
-              { ...t, color: "#8C8C8C" },
-              i,
-              completedTasks,
-              setCompletedTasks,
-              <button
-                onClick={() => deleteTask(t._id!)}
-                className="text-gray-300 hover:text-white text-sm"
-              >
-                ×
-              </button>
-            )
+            <div
+              key={t._id}
+              className="w-full bg-[#8C8C8C] rounded-md p-3 text-white flex flex-col"
+            >
+              <div className="flex justify-between items-center">
+                <span className="font-semibold text-base">{t.text}</span>
+                <div className="flex items-center space-x-2 text-sm text-gray-200">
+                  {t.due && <span>{formatTime(t.due)}</span>}
+                  <button onClick={() => moveTask(completedTasks, setCompletedTasks, i, "up")}>↑</button>
+                  <button onClick={() => moveTask(completedTasks, setCompletedTasks, i, "down")}>↓</button>
+                  <button onClick={() => deleteTask(t._id!)}>×</button>
+                </div>
+              </div>
+              {t.description && (
+                <p className="text-sm text-gray-200 mt-1">{t.description}</p>
+              )}
+            </div>
           )
         )}
       </div>
