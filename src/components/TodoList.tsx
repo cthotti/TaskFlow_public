@@ -37,8 +37,8 @@ export default function TodoList() {
     const res = await fetch("/api/tasks");
     const data = await res.json();
     setTodayTasks(data.today);
-    setCarryOverTasks(data.carryOver);
-    setCompletedTasks(data.completed);
+    setCarryOverTasks(data.carryOver ?? []);
+    setCompletedTasks(data.completed ?? []);
   };
 
   const fetchDate = async () => {
@@ -142,10 +142,10 @@ export default function TodoList() {
       {/* Carry Over */}
       <section className="bg-white rounded-lg p-6 border border-gray-300 shadow-md">
         <h2 className="text-lg font-bold mb-4 text-center text-black">Carry Over</h2>
-        {carryOverTasks.length === 0 ? (
+        {(carryOverTasks ?? []).length === 0 ? (
           <p className="text-sm text-gray-500 text-center">No carry-over tasks</p>
         ) : (
-          carryOverTasks.map((t, i) =>
+          (carryOverTasks ?? []).map((t, i) =>
             renderTask(t, i, carryOverTasks, setCarryOverTasks, (
               <>
                 <button onClick={() => addToToday(t._id!)} className="bg-green-600 text-white px-2 py-1 rounded-md text-sm">Add</button>

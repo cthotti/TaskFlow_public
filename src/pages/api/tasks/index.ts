@@ -7,31 +7,29 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   await connectDB();
 
   if (req.method === "GET") {
-    try {
-      const today = new Date().toISOString().split("T")[0];
-      const tasks = await Task.find({});
+  try {
+    const tasks = await Task.find({});
+    const todayStr = new Date().toISOString().split("T")[0];
 
-      // Format dates for comparison
-      const formatDate = (d: Date) => d.toISOString().split("T")[0];
+    const todayTasks = tasks.filter(
+      t => !t.completed && !t.carryOver && t.date === todayStr
+    );
 
-      // Fetch today's tasks
-      const todayTasks = tasks.filter(t => !t.completed && !t.carryOver && t.date === today);
+    const carryOverTasks = tasks.filter(
+      t => !t.completed && t.carryOver
+    );
 
-      // Fetch yesterday's tasks that are not completed
-      const carryOverTasks = tasks.filter(t => !t.completed && t.carryOver);
+    const completedTasks = tasks.filter(t => t.completed);
 
-      // Fetch completed tasks (from today and yesterday)
-      const completedTasks = tasks.filter(t => t.completed);
-
-      return res.status(200).json({
-        todayTasks,
-        carryOverTasks,
-        completedTasks,
-      });
-    } catch (error) {
-      return res.status(500).json({ error: "Failed to fetch tasks" });
-    }
+    return res.status(200).json({
+      today: todayTasks,
+      carryOver: carryOverTasks,
+      completed: completedTasks,
+    });
+  } catch (error) {
+    return res.status(500).json({ error: "Failed to fetch tasks" });
   }
+}
 
   if (req.method === "POST") {
     const { text, due, description } = req.body;
@@ -47,6 +45,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       color,
       date: today,
       completed: false,
+      carryOver: false,
     });
 
     return res.status(201).json({ task });
