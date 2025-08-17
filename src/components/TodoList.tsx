@@ -53,17 +53,17 @@ export default function TodoList() {
 
 const fetchTasks = async () => {
   const res = await fetch("/api/tasks");
-    const data = await res.json();
-    setTodayTasks(data.today);
-    setCarryOverTasks(data.carryOver);
-    setCompletedTasks(data.completed);
+  const data = await res.json();
+  setTodayTasks(data.today);
+  setCarryOverTasks(data.carryOver);
+  setCompletedTasks(data.completed);
 };
 
   // Try python backend /date, fallback to client date
   const fetchDate = async () => {
     const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/date`);
     const data = await res.json();
-    setDateInfo(data)
+    setDateInfo(data);
   };
 
   const formatLocalDate = (d: Date) =>
@@ -81,8 +81,8 @@ const fetchTasks = async () => {
     setTodayTasks([...todayTasks, data.task]);
     setNewTask("");
     setDueTime("");
-    setShowForm(false);
     setNewDescription("");
+    setShowForm(false);
   };
 
   // --- deleteTask safely updates only lists that contain the id ---
@@ -230,7 +230,7 @@ const renderTask = (
   return (
     <div
       key={task._id ?? `${task.text}-${idx}`}
-      className="flex justify-between items-start p-2 mb-2 rounded-md border border-gray-200 shadow-sm w-full"
+      className="${inter.className} flex justify-between items-start p-2 mb-2 rounded-md border border-gray-200 shadow-sm w-full"
       style={{ backgroundColor: bg, color: "black" }}
     >
       <div className="flex-1 space-y-1">
@@ -298,8 +298,6 @@ const renderTask = (
     </div>
   );
 };
-
-
 
 
   // outer grid - NOTE: items-start so column heights are independent.

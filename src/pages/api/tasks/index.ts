@@ -8,10 +8,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   if (req.method === "GET") {
     try {
+      const today = new Date().toISOString().split("T")[0];
       const tasks = await Task.find({});
-      const today = new Date();
-      const yesterday = new Date(today);
-      yesterday.setDate(today.getDate() - 1);
 
       // Format dates for comparison
       const formatDate = (d: Date) => d.toISOString().split("T")[0];
