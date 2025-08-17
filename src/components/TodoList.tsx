@@ -29,8 +29,7 @@ export default function TodoList() {
   const [dateInfo, setDateInfo] = useState<DateInfo>({ date: "" });
 
   const pastelColors = [
-    "#FFDEE9", "#B5FFFC", "#C9FFBF", "#FFD6A5", "#FEC5E5",
-    "#D5AAFF", "#FFFACD", "#C1F0F6", "#FFB3BA", "#BAFFC9"
+    "#8C8C8C"
   ];
 
 
@@ -53,11 +52,98 @@ export default function TodoList() {
   // --- fetchTasks: robust categorization ---
 
 const fetchTasks = async () => {
-  const res = await fetch("/api/tasks");
-  const data = await res.json();
-  setTodayTasks(data.todayTasks);
-  setCarryOverTasks(data.carryOverTasks);
-  setCompletedTasks(data.completedTasks);
+  try {
+      const res = await fetch("/api/tasks");
+      if (!res.ok) {
+        console.warn("fetch /api/tasks returned non-ok:", res.status);
+        return;
+      }
+      const data = await res.json();
+
+      // Accept many shapes: { today:[], carryOver:[], completed:[] }
+      // or { tasks: [...] } or plain array.
+
+      let allTasks: Task[] = [];
+
+      if (Array.isArray(data)) {
+        allTasks = data;
+      } else if (Array.isArray(data.tasks)) {
+        allTasks = data.tasks;
+      } else {
+        // If API already splits lists, use them
+        if (Array.isArray(data.today) || Array.isArray(data.carryOver) || Array.isArray(data.completed)) {
+          setTodayTasks(Array.isArray(data.today) ? data.today : []);
+          setCarryOverTasks(Array.isArray(data.carryOver) ? data.carryOver : []);
+          setCompletedTasks(Array.isArray(data.completed) ? data.completed : []);
+          return;
+        }
+        // fallback: try any other top-level arrays (robust)
+        const maybe = Object.values(data).find(v => Array.isArray(v)) as any;
+        if (Array.isArray(maybe)) {
+          allTasks = maybe;
+        } else {
+          // as last resort, treat data as empty
+          allTasks = [];
+        }
+      }
+
+      // categorize by flags/date
+      const todayStr = localISODate();
+      const today: Task[] = [];
+      const carry: Task[] = [];
+      const completed: Task[] = [];
+
+    allTasks.forEach((t: any) => {
+        const task: Task = {
+            _id: t._id ?? t.id,
+            text: t.text ?? "",
+            due: t.due,
+            description: t.description,
+            color: t.color,
+            completed: !!t.completed,
+            carryOver: !!t.carryOver,
+            date: t.date,
+        };
+
+        if (task.completed) {
+            completed.push(task);
+            return;
+        }
+
+        // If DB says carryOver = true, always trust that
+        if (task.carryOver) {
+            carry.push(task);
+            return;
+        }
+
+        const taskDate = parseYMD(task.date);
+        const todayDate = parseYMD(todayStr);
+        const isPastDate = Boolean(taskDate && todayDate && taskDate.getTime() < todayDate.getTime());
+
+        if (isPastDate) {
+            carry.push({ ...task, carryOver: true });
+        } else if (task.date === todayStr) {
+            today.push(task);
+        } else if (!task.date) {
+            today.push({ ...task, date: todayStr });
+        } else {
+            carry.push({ ...task, carryOver: true });
+        }
+    });
+
+
+      // sort today's tasks by due
+      const sortByDue = (arr: Task[]) => arr.sort((a, b) => (a.due ?? "").localeCompare(b.due ?? ""));
+
+      setTodayTasks(sortByDue(today));
+      setCarryOverTasks(carry);
+      setCompletedTasks(completed);
+    } catch (err) {
+      console.error("Failed to fetch tasks:", err);
+      setTodayTasks([]);
+      setCarryOverTasks([]);
+      setCompletedTasks([]);
+    }
 };
 
   // Try python backend /date, fallback to client date
