@@ -197,9 +197,27 @@ const renderTask = (
 ) => {
   const bg = task.color ?? pastelColors[(task.text?.length ?? 0) % pastelColors.length];
 
-  // ✅ Removed handleAddNewTask entirely
-  // ✅ Removed handleSubmitTask placeholder
-  // ✅ Simplified keydown handlers so they no longer block normal typing
+  // Function to add a new blank task row (✅ no prev updater)
+  const handleAddNewTask = () => {
+    const newTask: Task = {
+      _id: `temp-${Date.now()}`,
+      text: "",
+      description: "",
+      due: "",
+      color: pastelColors[Math.floor(Math.random() * pastelColors.length)],
+      completed: false,
+      carryOver: false,
+      date: localISODate(),
+    };
+    const newArr = [...arr.slice(0, idx + 1), newTask, ...arr.slice(idx + 1)];
+    setArr(newArr);
+  };
+
+  // Function to submit the task
+  const handleSubmitTask = () => {
+    // TODO: Replace with your actual save/submit logic
+    console.log("Submitting task:", task);
+  };
 
   // Helper to update a single field
   const updateField = (field: keyof Task, value: any) => {
@@ -221,18 +239,31 @@ const renderTask = (
           type="text"
           value={task.text}
           onChange={(e) => updateField("text", e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "+" && e.code === "Enter") {
+              e.preventDefault();
+              handleAddNewTask();
+            } else if (e.key === "Enter" && !e.shiftKey) {
+              e.preventDefault();
+              handleSubmitTask();
+            }
+          }}
           className="font-medium text-sm text-black w-full bg-transparent outline-none"
           placeholder="Task name"
         />
 
-        {/* ✅ Description textarea with Shift+Enter for newline */}
+        {/* ✅ Description textarea with Shift+Enter for new line */}
         <textarea
           value={task.description || ""}
           onChange={(e) => updateField("description", e.target.value)}
           onKeyDown={(e) => {
+            if (e.key === "Enter" && e.shiftKey) {
+              // Allow newline
+              return;
+            }
             if (e.key === "Enter" && !e.shiftKey) {
-              // prevent accidental submits
               e.preventDefault();
+              handleSubmitTask();
             }
           }}
           className="text-xs text-black whitespace-pre-line w-full bg-transparent outline-none"
@@ -267,6 +298,9 @@ const renderTask = (
     </div>
   );
 };
+
+
+
 
   // outer grid - NOTE: items-start so column heights are independent.
     return (
