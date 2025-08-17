@@ -11,30 +11,14 @@ type Task = {
   due?: string;
   description?: string;
   color?: string;
-  completed?: boolean;
-  carryOver?: boolean;
+  completed: boolean;
   date?: string; // "YYYY-MM-DD"
 };
 
 type DateInfo = { date: string };
 
-// small debounce helper for saving edits
-function debounce<T extends (...args: any[]) => void>(fn: T, ms = 350) {
-  let timer: ReturnType<typeof setTimeout> | null = null;
-  return (...args: Parameters<T>) => {
-    if (timer) clearTimeout(timer);
-    timer = setTimeout(() => fn(...args), ms);
-  };
-}
-
 export default function TodoList() {
-  // fetchVersion prevents stale GET results from overwriting newer state
-  const fetchVersion = React.useRef(0);
-
-  const [todayTasks, setTodayTasks] = useState<Task[]>([]);
-  const [carryOverTasks, setCarryOverTasks] = useState<Task[]>([]);
-  const [completedTasks, setCompletedTasks] = useState<Task[]>([]);
-
+  const [tasks, setTasks] = useState<Task[]>([]);
   const [showForm, setShowForm] = useState(false);
   const [newDescription, setNewDescription] = useState("");
   const [newTask, setNewTask] = useState("");
@@ -52,86 +36,49 @@ export default function TodoList() {
     return d.toISOString().slice(0, 10);
   };
 
-  const parseYMD = (s?: string): Date | null => {
-    if (!s) return null;
-    const parts = s.split("-");
-    if (parts.length !== 3) return null;
-    const [y, m, d] = parts.map(Number);
-    if (!y || !m || !d) return null;
-    return new Date(y, m - 1, d);
-  };
-
-  // ---------- fetchTasks ----------
+  // Simple fetch - just get all tasks and let client categorize
   const fetchTasks = async () => {
-    const ticket = ++fetchVersion.current;
     try {
       const res = await fetch("/api/tasks", { cache: "no-store" });
-      if (!res.ok) throw new Error(`/api/tasks returned ${res.status}`);
-      const data = await res.json();
-
-      // If server already returned buckets, prefer them (support multiple key names)
-      const directToday = (data as any).today ?? (data as any).todayTasks;
-      const directCarry = (data as any).carryOver ?? (data as any).carryOverTasks;
-      const directCompleted = (data as any).completed ?? (data as any).completedTasks;
-      if (Array.isArray(directToday) || Array.isArray(directCarry) || Array.isArray(directCompleted)) {
-        if (ticket !== fetchVersion.current) return;
-        setTodayTasks(Array.isArray(directToday) ? directToday : []);
-        setCarryOverTasks(Array.isArray(directCarry) ? directCarry : []);
-        setCompletedTasks(Array.isArray(directCompleted) ? directCompleted : []);
+      if (!res.ok) {
+        console.warn("fetchTasks failed:", res.status);
         return;
       }
-
-      // Otherwise try to extract a flat array and categorize locally
-      let all: any[] = [];
-      if (Array.isArray(data)) all = data;
-      else if (Array.isArray((data as any).tasks)) all = (data as any).tasks;
-      else {
-        const maybe = Object.values(data).find(Array.isArray) as any[] | undefined;
-        all = maybe ?? [];
+      const data = await res.json();
+      
+      // Handle different response formats
+      let allTasks: any[] = [];
+      if (Array.isArray(data)) {
+        allTasks = data;
+      } else if (Array.isArray(data.tasks)) {
+        allTasks = data.tasks;
+      } else if (data.today || data.carryOver || data.completed) {
+        // Merge all arrays if server returns buckets
+        allTasks = [
+          ...(Array.isArray(data.today) ? data.today : []),
+          ...(Array.isArray(data.carryOver) ? data.carryOver : []),
+          ...(Array.isArray(data.completed) ? data.completed : [])
+        ];
       }
 
-      const todayStr = localISODate();
-      const today: Task[] = [];
-      const carry: Task[] = [];
-      const completed: Task[] = [];
+      // Normalize tasks
+      const normalizedTasks: Task[] = allTasks.map((t: any) => ({
+        _id: t._id || t.id,
+        text: t.text || "",
+        due: t.due || t.time || "",
+        description: t.description || t.desc || "",
+        color: t.color || pastelColors[Math.floor(Math.random() * pastelColors.length)],
+        completed: !!t.completed,
+        date: t.date || localISODate(),
+      }));
 
-      all.forEach((t: any) => {
-        const task: Task = {
-          _id: t._id ?? t.id,
-          text: t.text ?? "",
-          due: t.due ?? t.time,
-          description: t.description ?? t.desc ?? "",
-          color: t.color,
-          completed: !!t.completed,
-          carryOver: !!t.carryOver,
-          date: t.date,
-        };
-
-        if (task.completed) { completed.push(task); return; }
-        if (task.carryOver) { carry.push(task); return; }
-
-        const taskDate = parseYMD(task.date);
-        const todayDate = parseYMD(todayStr);
-        const isPast = !!taskDate && !!todayDate && taskDate.getTime() < todayDate.getTime();
-
-        if (isPast) carry.push({ ...task, carryOver: true });
-        else if (task.date === todayStr || !task.date) today.push({ ...task, date: todayStr });
-        else carry.push({ ...task, carryOver: true });
-      });
-
-      today.sort((a, b) => (a.due ?? "").localeCompare(b.due ?? ""));
-
-      if (ticket !== fetchVersion.current) return; // ignore stale
-      setTodayTasks(today);
-      setCarryOverTasks(carry);
-      setCompletedTasks(completed);
+      setTasks(normalizedTasks);
     } catch (err) {
       console.error("fetchTasks failed:", err);
-      // DO NOT clear lists on transient error (preserve UI)
     }
   };
 
-  // ---------- fetchDate ----------
+  // Fetch date from server or use local
   const fetchDate = async () => {
     try {
       const base = process.env.NEXT_PUBLIC_API_URL;
@@ -139,363 +86,383 @@ export default function TodoList() {
         const res = await fetch(`${base}/date`, { cache: "no-store" });
         if (res.ok) {
           const d = await res.json();
-          setDateInfo({ date: d.date ?? formatLocalDate(new Date()) });
+          setDateInfo({ date: d.date || formatLocalDate(new Date()) });
           return;
         }
       }
-    } catch {
-      // ignore and fallback to client
+    } catch (err) {
+      // Fallback to local date
     }
     setDateInfo({ date: formatLocalDate(new Date()) });
   };
 
   const formatLocalDate = (d: Date) =>
-    d.toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" });
+    d.toLocaleDateString("en-US", { 
+      weekday: "long", 
+      year: "numeric", 
+      month: "long", 
+      day: "numeric" 
+    });
 
-  // ---------- addTask (create) ----------
+  // Simple add task - no complex logic
   const addTask = async () => {
-    if (!newTask?.trim() || !dueTime) return;
+    if (!newTask?.trim()) return;
+    
     try {
-      const payload = {
+      const taskData = {
         text: newTask.trim(),
-        due: dueTime,
-        description: newDescription,
+        due: dueTime || "",
+        description: newDescription || "",
+        completed: false,
         date: localISODate(),
-        carryOver: false, // new tasks should appear in Today
       };
 
       const res = await fetch("/api/tasks", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
+        body: JSON.stringify(taskData),
       });
-      if (!res.ok) throw new Error("POST /api/tasks failed " + res.status);
 
-      const created = await res.json().catch(() => null);
-      const serverTask: any = created?.task ?? created ?? {};
-      const saved: Task = {
-        ...payload,
-        ...serverTask,
-        _id: serverTask._id ?? serverTask.id ?? `temp-${Date.now()}`,
+      if (!res.ok) {
+        throw new Error(`Failed to create task: ${res.status}`);
+      }
+
+      const result = await res.json();
+      const createdTask: Task = {
+        ...taskData,
+        _id: result._id || result.id || result.task?._id || result.task?.id,
+        color: result.color || result.task?.color || pastelColors[Math.floor(Math.random() * pastelColors.length)],
       };
 
-      // optimistic local append using server id if available
-      setTodayTasks(prev => {
-        const updated = [...prev, saved];
-        return updated.sort((a, b) => (a.due ?? "").localeCompare(b.due ?? ""));
-      });
+      // Add to local state immediately
+      setTasks(prev => [createdTask, ...prev]);
 
-      // gentle re-sync shortly after (protected by fetchVersion)
-      setTimeout(() => fetchTasks(), 300);
-
-      // clear form
+      // Clear form
       setNewTask("");
       setNewDescription("");
       setDueTime("");
       setShowForm(false);
+
+      // Optional: refetch after a short delay to sync with server
+      setTimeout(fetchTasks, 500);
+      
     } catch (err) {
       console.error("addTask failed:", err);
+      alert("Failed to add task. Please try again.");
     }
   };
 
-  // ---------- delete ----------
+  // Simple delete
   const deleteTask = async (id?: string) => {
     if (!id) return;
+    
     try {
-      await fetch(`/api/tasks/${id}`, { method: "DELETE" });
-      setTodayTasks(prev => prev.filter(t => t._id !== id));
-      setCarryOverTasks(prev => prev.filter(t => t._id !== id));
-      setCompletedTasks(prev => prev.filter(t => t._id !== id));
+      // Remove from UI immediately
+      setTasks(prev => prev.filter(t => t._id !== id));
+      
+      // Delete from server
+      const res = await fetch(`/api/tasks/${id}`, { method: "DELETE" });
+      if (!res.ok) {
+        console.warn("Delete request failed:", res.status);
+        // Refetch to restore state if delete failed
+        fetchTasks();
+      }
     } catch (err) {
       console.error("deleteTask failed:", err);
+      fetchTasks(); // Restore state on error
     }
   };
 
-  // ---------- markComplete ----------
-  const markComplete = async (id?: string) => {
+  // Toggle completion status
+  const toggleComplete = async (id?: string) => {
     if (!id) return;
-    // optimistic update
-    const found = todayTasks.find(t => t._id === id) || carryOverTasks.find(t => t._id === id);
-    if (found) {
-      setTodayTasks(prev => prev.filter(t => t._id !== id));
-      setCarryOverTasks(prev => prev.filter(t => t._id !== id));
-      setCompletedTasks(prev => [{ ...found, completed: true, carryOver: false }, ...prev]);
-    }
+    
+    const task = tasks.find(t => t._id === id);
+    if (!task) return;
 
+    const updatedTask = { ...task, completed: !task.completed };
+    
     try {
+      // Update UI immediately
+      setTasks(prev => prev.map(t => t._id === id ? updatedTask : t));
+      
+      // Update server
       const res = await fetch(`/api/tasks/${id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ completed: true, carryOver: false }),
+        body: JSON.stringify({ completed: updatedTask.completed }),
       });
+
       if (!res.ok) {
-        console.warn("markComplete patch failed", res.status);
-        fetchTasks();
-        return;
-      }
-      const data = await res.json().catch(() => null);
-      const updated = data?.task ?? null;
-      if (updated) {
-        setCompletedTasks(prev => {
-          const replaced = prev.filter(p => p._id !== id);
-          return [updated, ...replaced];
-        });
+        console.warn("Toggle complete failed:", res.status);
+        // Revert on error
+        setTasks(prev => prev.map(t => t._id === id ? task : t));
       }
     } catch (err) {
-      console.error("markComplete failed:", err);
-      fetchTasks();
+      console.error("toggleComplete failed:", err);
+      // Revert on error
+      setTasks(prev => prev.map(t => t._id === id ? task : t));
     }
   };
 
-  // ---------- addToToday (carry -> today) ----------
-  const addToToday = async (id?: string) => {
-    if (!id) return;
-    const today = localISODate();
-    try {
-      const res = await fetch(`/api/tasks/${id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ carryOver: false, date: today }),
-      });
-      if (!res.ok) throw new Error("PATCH addToToday failed " + res.status);
-      const data = await res.json().catch(() => null);
-      const updated: Task | null = data?.task ?? null;
+  // Update task field with debounced save
+  const updateTask = async (id: string, field: keyof Task, value: any) => {
+    // Update UI immediately
+    setTasks(prev => prev.map(t => 
+      t._id === id ? { ...t, [field]: value } : t
+    ));
 
-      // remove from carry locally
-      setCarryOverTasks(prev => prev.filter(t => t._id !== id));
-      if (updated) {
-        setTodayTasks(prev => {
-          const next = [...prev, updated];
-          return next.sort((a, b) => (a.due ?? "").localeCompare(b.due ?? ""));
+    // Debounced save to server
+    clearTimeout((window as any)[`save_${id}`]);
+    (window as any)[`save_${id}`] = setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/tasks/${id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ [field]: value }),
         });
-      } else {
-        fetchTasks();
+        if (!res.ok) {
+          console.warn("Update task failed:", res.status);
+        }
+      } catch (err) {
+        console.error("updateTask failed:", err);
       }
-    } catch (err) {
-      console.error("addToToday failed:", err);
-      fetchTasks();
-    }
+    }, 500);
   };
 
-  // ---------- move local order ----------
-  const moveTask = (setter: (arr: Task[]) => void, arr: Task[], i: number, dir: "up" | "down") => {
-    const updated = [...arr];
-    const j = dir === "up" ? i - 1 : i + 1;
-    if (j < 0 || j >= arr.length) return;
-    [updated[i], updated[j]] = [updated[j], updated[i]];
-    setter(updated);
+  // Move task up/down in the list
+  const moveTask = (taskList: Task[], setTaskList: (tasks: Task[]) => void, index: number, direction: "up" | "down") => {
+    const newIndex = direction === "up" ? index - 1 : index + 1;
+    if (newIndex < 0 || newIndex >= taskList.length) return;
+
+    const newList = [...taskList];
+    [newList[index], newList[newIndex]] = [newList[newIndex], newList[index]];
+    setTaskList(newList);
   };
 
   useEffect(() => {
     fetchTasks();
     fetchDate();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const formatTime = (time?: string) => {
     if (!time) return "";
     const [hhStr, mmStr] = time.split(":");
     const hh = Number(hhStr);
-    const mm = Number(mmStr ?? 0);
+    const mm = Number(mmStr || 0);
     const hh12 = hh % 12 || 12;
     const ampm = hh >= 12 ? "PM" : "AM";
     return `${hh12}:${String(mm).padStart(2, "0")} ${ampm}`;
   };
 
-  // ---------- renderTask (compact, dark minimal card) ----------
+  // Split tasks into categories
+  const todayStr = localISODate();
+  const todayTasks = tasks.filter(t => !t.completed && (t.date === todayStr || !t.date));
+  const pastTasks = tasks.filter(t => !t.completed && t.date && t.date < todayStr);
+  const completedTasks = tasks.filter(t => t.completed);
+
+  // Sort by due time
+  const sortByDue = (taskList: Task[]) => 
+    taskList.sort((a, b) => (a.due || "").localeCompare(b.due || ""));
+
+  // Render a single task
   const renderTask = (
     task: Task,
-    idx: number,
-    arr: Task[],
-    setArr: (v: Task[]) => void,
+    index: number,
+    taskList: Task[],
+    setTaskList: (tasks: Task[]) => void,
     extras?: React.ReactNode
-  ) => {
-    // monochrome default card bg (server color may override if present)
-    const bg = task.color ?? "#1E1E1E";
-
-    // debounced save to server when editing fields
-    const saveTask = debounce(async (updatedTask: Task) => {
-      if (!updatedTask._id || String(updatedTask._id).startsWith("temp-")) return;
-      try {
-        await fetch(`/api/tasks/${updatedTask._id}`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            text: updatedTask.text,
-            description: updatedTask.description,
-            due: updatedTask.due,
-            date: updatedTask.date,
-            carryOver: updatedTask.carryOver,
-            completed: updatedTask.completed,
-            color: updatedTask.color,
-          }),
-        });
-      } catch (err) {
-        console.error("saveTask failed:", err);
-      }
-    }, 450);
-
-    const updateField = (field: keyof Task, value: any) => {
-      const updatedList = arr.map((item, i) => (i === idx ? { ...item, [field]: value } : item));
-      setArr(updatedList);
-      const updatedTask = updatedList[idx];
-      // Only attempt save for real server ids (not temporary)
-      if (updatedTask && updatedTask._id && !String(updatedTask._id).startsWith("temp-")) {
-        saveTask(updatedTask);
-      }
-    };
-
-    const handleAddRow = () => {
-      const temp: Task = {
-        _id: `temp-${Date.now()}`,
-        text: "",
-        description: "",
-        due: "",
-        color: pastelColors[Math.floor(Math.random() * pastelColors.length)],
-        completed: false,
-        carryOver: false,
-        date: localISODate(),
-      };
-      const newArr = [...arr.slice(0, idx + 1), temp, ...arr.slice(idx + 1)];
-      setArr(newArr);
-    };
-
-    const key = (task as any)._id ?? `${task.text}-${idx}-${task.due ?? ""}`;
-
-    return (
-      <div
-        key={key}
-        className="flex justify-between items-start p-2 mb-2 rounded-md border border-gray-600 bg-[#1E1E1E] w-full"
-        style={{ backgroundColor: bg, color: "#E6E6E6" }}
-      >
-        <div className="flex-1 space-y-1">
-          <div className="flex items-center justify-between gap-3">
-            <input
-              type="text"
-              value={task.text}
-              onChange={(e) => updateField("text", e.target.value)}
-              onKeyDown={(e) => {
-                if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "n") {
-                  e.preventDefault();
-                  handleAddRow();
-                }
-                if (e.key === "Enter" && !e.shiftKey) {
-                  e.preventDefault();
-                }
-              }}
-              className="font-medium text-sm text-gray-100 bg-transparent outline-none flex-1"
-              placeholder="Task name"
-            />
-
-            {task.due && (
-              <span className="ml-2 text-[12px] text-gray-400 whitespace-nowrap">{formatTime(task.due)}</span>
-            )}
-          </div>
-
-          <textarea
-            value={task.description ?? ""}
-            onChange={(e) => updateField("description", e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && e.shiftKey) return;
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-              }
-            }}
-            className="text-xs text-gray-300 whitespace-pre-line w-full bg-transparent outline-none"
-            placeholder="More info..."
-            rows={1}
+  ) => (
+    <div
+      key={task._id || `task-${index}`}
+      className="flex justify-between items-start p-3 mb-2 rounded-md border border-gray-600 w-full"
+      style={{ 
+        backgroundColor: task.color || "#1E1E1E", 
+        color: "#E6E6E6" 
+      }}
+    >
+      <div className="flex-1 space-y-2">
+        <div className="flex items-center justify-between gap-3">
+          <input
+            type="text"
+            value={task.text}
+            onChange={(e) => updateTask(task._id!, "text", e.target.value)}
+            className="font-medium text-sm text-gray-100 bg-transparent outline-none flex-1"
+            placeholder="Task name"
           />
+          {task.due && (
+            <span className="ml-2 text-xs text-gray-400 whitespace-nowrap">
+              {formatTime(task.due)}
+            </span>
+          )}
         </div>
 
-        <div className="flex items-center gap-2 ml-2">
-          <button onClick={() => moveTask(setArr, arr, idx, "up")} className="text-base text-gray-400 hover:text-gray-200" aria-label="up">↑</button>
-          <button onClick={() => moveTask(setArr, arr, idx, "down")} className="text-base text-gray-400 hover:text-gray-200" aria-label="down">↓</button>
-          {extras}
-        </div>
+        {task.description && (
+          <textarea
+            value={task.description}
+            onChange={(e) => updateTask(task._id!, "description", e.target.value)}
+            className="text-xs text-gray-300 w-full bg-transparent outline-none resize-none"
+            placeholder="Description..."
+            rows={2}
+          />
+        )}
       </div>
-    );
-  };
 
-  // ---------- final render (grid with three columns) ----------
+      <div className="flex items-center gap-2 ml-2">
+        <button
+          onClick={() => moveTask(taskList, setTaskList, index, "up")}
+          className="text-sm text-gray-400 hover:text-gray-200"
+        >
+          ↑
+        </button>
+        <button
+          onClick={() => moveTask(taskList, setTaskList, index, "down")}
+          className="text-sm text-gray-400 hover:text-gray-200"
+        >
+          ↓
+        </button>
+        {extras}
+      </div>
+    </div>
+  );
+
   return (
     <div className={`${inter.className} grid grid-cols-1 md:grid-cols-3 gap-6 p-6 items-start`}>
-      {/* Carry Over */}
+      
+      {/* Past Tasks */}
       <section>
         <h3 className="text-md font-semibold text-white border border-gray-600 rounded-md py-2 px-3 text-center mb-3">
-          Carry Over
+          Past Tasks ({pastTasks.length})
         </h3>
-        {(carryOverTasks ?? []).length === 0 ? (
-          <p className="text-sm text-gray-500 text-center">No carry-over tasks</p>
+        {pastTasks.length === 0 ? (
+          <p className="text-sm text-gray-500 text-center">No past tasks</p>
         ) : (
-          carryOverTasks.map((t, i) =>
-            renderTask(t, i, carryOverTasks, setCarryOverTasks, (
+          sortByDue(pastTasks).map((task, index) =>
+            renderTask(task, index, pastTasks, () => {}, (
               <>
-                <button onClick={() => addToToday(t._id)} className="text-xs text-gray-200 border border-gray-500 rounded px-2 py-1 hover:bg-gray-700">Add</button>
-                <button onClick={() => deleteTask(t._id)} className="text-lg text-gray-400 hover:text-red-500">×</button>
+                <input
+                  type="checkbox"
+                  checked={task.completed}
+                  onChange={() => toggleComplete(task._id)}
+                  className="w-4 h-4"
+                />
+                <button
+                  onClick={() => updateTask(task._id!, "date", todayStr)}
+                  className="text-xs text-blue-400 border border-blue-400 rounded px-2 py-1 hover:bg-blue-400 hover:text-white"
+                >
+                  Today
+                </button>
+                <button
+                  onClick={() => deleteTask(task._id)}
+                  className="text-lg text-gray-400 hover:text-red-500"
+                >
+                  ×
+                </button>
               </>
             ))
           )
         )}
       </section>
 
-      {/* Today */}
+      {/* Today's Tasks */}
       <main>
-        <h3 className="text-md font-semibold text-white border border-gray-600 rounded-md py-2 px-3 text-center mb-3 flex items-center justify-between">
+        <div className="text-md font-semibold text-white border border-gray-600 rounded-md py-2 px-3 text-center mb-3 flex items-center justify-between">
           <span>{dateInfo.date || formatLocalDate(new Date())}</span>
-          <button onClick={() => setShowForm(s => !s)} className="text-xl text-gray-300 hover:text-white">+</button>
-        </h3>
+          <button
+            onClick={() => setShowForm(!showForm)}
+            className="text-xl text-gray-300 hover:text-white"
+          >
+            +
+          </button>
+        </div>
 
         {showForm && (
-          <div className="mb-3 space-y-2">
+          <div className="mb-4 space-y-3 p-3 border border-gray-600 rounded-md bg-gray-800">
             <input
               type="text"
-              placeholder="Task"
+              placeholder="Task name"
               value={newTask}
-              onChange={e => setNewTask(e.target.value)}
-              className="w-full p-2 border border-gray-600 rounded bg-[#1E1E1E] text-gray-100"
+              onChange={(e) => setNewTask(e.target.value)}
+              className="w-full p-2 border border-gray-600 rounded bg-gray-700 text-gray-100"
             />
             <textarea
-              placeholder="More Info"
+              placeholder="Description (optional)"
               value={newDescription}
-              onChange={e => setNewDescription(e.target.value)}
-              className="w-full p-2 border border-gray-600 rounded bg-[#1E1E1E] text-gray-300"
+              onChange={(e) => setNewDescription(e.target.value)}
+              className="w-full p-2 border border-gray-600 rounded bg-gray-700 text-gray-300"
               rows={2}
             />
             <input
               type="time"
               value={dueTime}
-              onChange={e => setDueTime(e.target.value)}
-              className="w-full p-2 border border-gray-600 rounded bg-[#1E1E1E] text-gray-100"
+              onChange={(e) => setDueTime(e.target.value)}
+              className="w-full p-2 border border-gray-600 rounded bg-gray-700 text-gray-100"
             />
-            <button onClick={addTask} className="w-full bg-gray-700 text-gray-100 p-2 rounded-md hover:bg-gray-600">Add Task</button>
+            <div className="flex gap-2">
+              <button
+                onClick={addTask}
+                className="flex-1 bg-blue-600 text-white p-2 rounded-md hover:bg-blue-700"
+              >
+                Add Task
+              </button>
+              <button
+                onClick={() => setShowForm(false)}
+                className="px-4 bg-gray-600 text-gray-200 p-2 rounded-md hover:bg-gray-700"
+              >
+                Cancel
+              </button>
+            </div>
           </div>
         )}
 
-        {(todayTasks ?? []).length === 0 ? (
-          <p className="text-sm text-gray-500">No tasks for today</p>
+        {todayTasks.length === 0 ? (
+          <p className="text-sm text-gray-500 text-center">No tasks for today</p>
         ) : (
-          todayTasks.map((t, i) =>
-            renderTask(t, i, todayTasks, setTodayTasks, (
+          sortByDue(todayTasks).map((task, index) =>
+            renderTask(task, index, todayTasks, () => {}, (
               <>
-                <input type="checkbox" checked={!!t.completed} onChange={() => markComplete(t._id)} aria-label="complete" className="w-4 h-4 ml-1 mr-1" />
-                <button onClick={() => deleteTask(t._id)} className="text-sm text-gray-500">×</button>
+                <input
+                  type="checkbox"
+                  checked={task.completed}
+                  onChange={() => toggleComplete(task._id)}
+                  className="w-4 h-4"
+                />
+                <button
+                  onClick={() => deleteTask(task._id)}
+                  className="text-lg text-gray-400 hover:text-red-500"
+                >
+                  ×
+                </button>
               </>
             ))
           )
         )}
       </main>
 
-      {/* Completed */}
+      {/* Completed Tasks */}
       <section>
         <h3 className="text-md font-semibold text-white border border-gray-600 rounded-md py-2 px-3 text-center mb-3">
-          Completed
+          Completed ({completedTasks.length})
         </h3>
-        {(completedTasks ?? []).length === 0 ? (
+        {completedTasks.length === 0 ? (
           <p className="text-sm text-gray-500 text-center">No completed tasks</p>
         ) : (
-          completedTasks.map((t, i) =>
-            renderTask(t, i, completedTasks, setCompletedTasks, (
-              <button onClick={() => deleteTask(t._id)} className="text-lg text-gray-400 hover:text-red-500">×</button>
+          completedTasks.slice(0, 10).map((task, index) => // Show only last 10 completed
+            renderTask(task, index, completedTasks, () => {}, (
+              <>
+                <input
+                  type="checkbox"
+                  checked={task.completed}
+                  onChange={() => toggleComplete(task._id)}
+                  className="w-4 h-4"
+                />
+                <button
+                  onClick={() => deleteTask(task._id)}
+                  className="text-lg text-gray-400 hover:text-red-500"
+                >
+                  ×
+                </button>
+              </>
             ))
           )
         )}
