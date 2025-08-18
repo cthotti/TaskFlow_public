@@ -49,16 +49,28 @@ export default function TodoList() {
 
   const addTask = async () => {
     if (!newTask || !dueTime) return;
+
     const res = await fetch("/api/tasks", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text: newTask, description: newDescription, due: dueTime }),
+      body: JSON.stringify({
+        text: newTask,
+        description: newDescription,
+        due: dueTime,
+      }),
     });
+
+    if (!res.ok) {
+      console.error("Failed to add task", await res.text());
+      return;
+    }
+
     const data = await res.json();
 
+    // ✅ Re-fetch to ensure consistency with DB
     await fetchTasks();
 
-    setTodayTasks([...todayTasks, data.task]);
+    // Reset form
     setNewTask("");
     setNewDescription("");
     setDueTime("");
