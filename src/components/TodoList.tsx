@@ -36,9 +36,9 @@ export default function TodoList() {
   const fetchTasks = async () => {
     const res = await fetch("/api/tasks");
     const data = await res.json();
-    setTodayTasks(data.todayTasks ?? []);
-    setCarryOverTasks(data.carryOverTasks ?? []);
-    setCompletedTasks(data.completedTasks ?? []);
+    setTodayTasks(data.today ?? []);
+    setCarryOverTasks(data.carryOver ?? []);
+    setCompletedTasks(data.completed ?? []);
   };
 
   const fetchDate = async () => {
