@@ -36,7 +36,7 @@ export default function TodoList() {
   const fetchTasks = async () => {
     const res = await fetch("/api/tasks");
     const data = await res.json();
-    setTodayTasks(data.today ?? []);
+    setTodayTasks(data.today);
     setCarryOverTasks(data.carryOver ?? []);
     setCompletedTasks(data.completed ?? []);
   };
@@ -139,19 +139,19 @@ export default function TodoList() {
   }, []);
 
   const renderTask = (
-    task: Task,
-    index: number,
-    tasks: Task[],
-    setTasks: any,
-    extraButtons?: React.ReactNode
-  ) => (
-    <div
+  task: Task,
+  index: number,
+  tasks: Task[],
+  setTasks: any,
+  extraButtons?: React.ReactNode
+) => (
+  <div
     key={task._id}
-    className="flex flex-col bg-neutral-900 text-white rounded-md px-4 py-3 mb-2 shadow-sm"
+    className="flex flex-col bg-[#1e1e1e] text-white rounded-md px-4 py-3 mb-2 border border-gray-600"
   >
     {/* Top row: Title + Due Time */}
     <div className="flex justify-between items-center">
-      <span className="font-medium text-base">{task.text}</span>
+      <span className="text-sm font-normal">{task.text}</span>
       {task.due && (
         <span className="text-xs text-gray-400">{formatTime(task.due)}</span>
       )}
@@ -159,7 +159,7 @@ export default function TodoList() {
 
     {/* Description */}
     {task.description && (
-      <p className="text-xs text-gray-500 mt-1 whitespace-pre-line">
+      <p className="text-xs text-gray-400 mt-1 whitespace-pre-line">
         {task.description}
       </p>
     )}
@@ -171,7 +171,7 @@ export default function TodoList() {
       {extraButtons}
     </div>
   </div>
-  );
+);
 
   const formatTime = (time: string) => {
     const [hour, minute] = time.split(":").map(Number);
@@ -194,22 +194,31 @@ export default function TodoList() {
           (carryOverTasks ?? []).map((t, i) =>
             <div
               key={t._id}
-              className="w-full bg-[#8C8C8C] rounded-md p-3 text-white flex flex-col"
+              className="w-full bg-[#1e1e1e] border border-gray-600 rounded-md p-3 text-white flex flex-col"
             >
               {/* Title + Due + Controls */}
               <div className="flex justify-between items-center">
-                <span className="font-semibold text-base">{t.text}</span>
-                <div className="flex items-center space-x-2 text-sm text-gray-200">
+                <span className="text-sm font-normal">{t.text}</span>
+                <div className="flex items-center space-x-2 text-xs text-gray-300">
                   {t.due && <span>{formatTime(t.due)}</span>}
-                  <button onClick={() => moveTask(carryOverTasks, setCarryOverTasks, i, "up")}>↑</button>
-                  <button onClick={() => moveTask(carryOverTasks, setCarryOverTasks, i, "down")}>↓</button>
-                  <button onClick={() => addToToday(t._id!)}>☐</button>
-                  <button onClick={() => deleteTask(t._id!)}>×</button>
+                  {/* Add button replaces arrows + checkbox */}
+                  <button 
+                    onClick={() => addToToday(t._id!)} 
+                    className="px-2 py-0.5 border border-gray-500 rounded hover:bg-gray-700"
+                  >
+                    Add
+                  </button>
+                  <button 
+                    onClick={() => deleteTask(t._id!)} 
+                    className="hover:text-red-500"
+                  >
+                    ×
+                  </button>
                 </div>
               </div>
               {/* Description */}
               {t.description && (
-                <p className="text-sm text-gray-200 mt-1">{t.description}</p>
+                <p className="text-xs text-gray-400 mt-1">{t.description}</p>
               )}
             </div>
           )
@@ -267,24 +276,30 @@ export default function TodoList() {
           todayTasks.map((t, i) =>
             <div
               key={t._id}
-              className="w-full bg-[#8C8C8C] rounded-md p-3 text-white flex flex-col"
+              className="w-full bg-[#1e1e1e] border border-gray-600 rounded-md p-3 text-white flex flex-col"
             >
               <div className="flex justify-between items-center">
-                <span className="font-semibold text-base">{t.text}</span>
-                <div className="flex items-center space-x-2 text-sm text-gray-200">
+                <span className="text-sm font-normal">{t.text}</span>
+                <div className="flex items-center space-x-2 text-xs text-gray-300">
                   {t.due && <span>{formatTime(t.due)}</span>}
+                  {/* Reordered controls: ↑ ↓ ☐ × */}
                   <button onClick={() => moveTask(todayTasks, setTodayTasks, i, "up")}>↑</button>
+                  <button onClick={() => moveTask(todayTasks, setTodayTasks, i, "down")}>↓</button>
                   <input
                     type="checkbox"
                     onChange={() => markComplete(t._id!)}
                     className="w-4 h-4 accent-gray-500"
                   />
-                  <button onClick={() => moveTask(todayTasks, setTodayTasks, i, "down")}>↓</button>
-                  <button onClick={() => deleteTask(t._id!)}>×</button>
+                  <button 
+                    onClick={() => deleteTask(t._id!)} 
+                    className="hover:text-red-500"
+                  >
+                    ×
+                  </button>
                 </div>
               </div>
               {t.description && (
-                <p className="text-sm text-gray-200 mt-1">{t.description}</p>
+                <p className="text-xs text-gray-400 mt-1">{t.description}</p>
               )}
             </div>
           )
@@ -304,19 +319,24 @@ export default function TodoList() {
           completedTasks.map((t, i) =>
             <div
               key={t._id}
-              className="w-full bg-[#8C8C8C] rounded-md p-3 text-white flex flex-col"
+              className="w-full bg-[#1e1e1e] border border-gray-600 rounded-md p-3 text-white flex flex-col"
             >
               <div className="flex justify-between items-center">
-                <span className="font-semibold text-base">{t.text}</span>
-                <div className="flex items-center space-x-2 text-sm text-gray-200">
+                <span className="text-sm font-normal">{t.text}</span>
+                <div className="flex items-center space-x-2 text-xs text-gray-300">
                   {t.due && <span>{formatTime(t.due)}</span>}
                   <button onClick={() => moveTask(completedTasks, setCompletedTasks, i, "up")}>↑</button>
                   <button onClick={() => moveTask(completedTasks, setCompletedTasks, i, "down")}>↓</button>
-                  <button onClick={() => deleteTask(t._id!)}>×</button>
+                  <button 
+                    onClick={() => deleteTask(t._id!)} 
+                    className="hover:text-red-500"
+                  >
+                    ×
+                  </button>
                 </div>
               </div>
               {t.description && (
-                <p className="text-sm text-gray-200 mt-1">{t.description}</p>
+                <p className="text-xs text-gray-400 mt-1">{t.description}</p>
               )}
             </div>
           )
