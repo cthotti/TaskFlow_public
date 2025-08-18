@@ -36,9 +36,9 @@ export default function TodoList() {
   const fetchTasks = async () => {
     const res = await fetch("/api/tasks");
     const data = await res.json();
-    setTodayTasks(data.today);
-    setCarryOverTasks(data.carryOver ?? []);
-    setCompletedTasks(data.completed ?? []);
+    setTodayTasks(data.todayTasks ?? []);
+    setCarryOverTasks(data.carryOverTasks ?? []);
+    setCompletedTasks(data.completedTasks ?? []);
   };
 
   const fetchDate = async () => {
@@ -55,6 +55,9 @@ export default function TodoList() {
       body: JSON.stringify({ text: newTask, description: newDescription, due: dueTime }),
     });
     const data = await res.json();
+
+    await fetchTasks();
+
     setTodayTasks([...todayTasks, data.task]);
     setNewTask("");
     setNewDescription("");
@@ -67,6 +70,7 @@ export default function TodoList() {
     setTodayTasks(todayTasks.filter((t) => t._id !== id));
     setCarryOverTasks(carryOverTasks.filter((t) => t._id !== id));
     setCompletedTasks(completedTasks.filter((t) => t._id !== id));
+    await fetchTasks();
   };
 
   const markComplete = async (id: string) => {
@@ -75,7 +79,7 @@ export default function TodoList() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ completed: true }),
     });
-    fetchTasks();
+    await fetchTasks();
   };
 
   const addToToday = async (id: string) => {
@@ -88,6 +92,8 @@ export default function TodoList() {
       if (!res.ok) throw new Error("patch failed " + res.status);
       const data = await res.json().catch(() => null);
       const updated: Task = data?.task ?? null;
+
+      await fetchTasks();
 
       // remove from carryOver locally
       setCarryOverTasks(prev => prev.filter(t => t._id !== id));
