@@ -96,39 +96,23 @@ export default function TodoList() {
 
   const addToToday = async (id: string) => {
   try {
-    // Ensure we always send the date in YYYY-MM-DD format
-    const todayStr = new Date().toISOString().split("T")[0];
-
     const res = await fetch(`/api/tasks/${id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ carryOver: false, date: todayStr }),
+      body: JSON.stringify({ carryOver: false }),
     });
 
     if (!res.ok) throw new Error("patch failed " + res.status);
-    const data = await res.json().catch(() => null);
-    const updated: Task = data?.task ?? null;
 
-    // Optimistically remove from carryOver
+    // Optimistic update
     setCarryOverTasks(prev => prev.filter(t => t._id !== id));
 
-    // Add to today's tasks immediately
-    if (updated) {
-      setTodayTasks(prev => {
-        const next = [...prev, updated];
-        return next.sort((a, b) => (a.due ?? "").localeCompare(b.due ?? ""));
-      });
-    }
-
-    // Final sync with DB
-    await fetchTasks();
-
+    await fetchTasks(); // final sync
   } catch (err) {
     console.error("Add to today failed:", err);
-    fetchTasks(); // fallback: full reload
+    fetchTasks();
   }
 };
-
 
   const moveTask = (tasks: Task[], setTasks: any, index: number, direction: "up" | "down") => {
     const updated = [...tasks];
