@@ -99,7 +99,7 @@ export default function TodoList() {
       const res = await fetch(`/api/tasks/${id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ carryOver: false, dueTime: dateInfo.date }),
+        body: JSON.stringify({ carryOver: false, due: dateInfo.date }),
       });
       if (!res.ok) throw new Error("patch failed " + res.status);
       const data = await res.json().catch(() => null);
