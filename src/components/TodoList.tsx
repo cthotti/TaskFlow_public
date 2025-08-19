@@ -99,25 +99,13 @@ export default function TodoList() {
       const res = await fetch(`/api/tasks/${id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ carryOver: false}),
+        body: JSON.stringify({ carryOver: false, dueTime: dateInfo.date }),
       });
       if (!res.ok) throw new Error("patch failed " + res.status);
       const data = await res.json().catch(() => null);
       const updated: Task = data?.task ?? null;
 
       await fetchTasks();
-
-      // remove from carryOver locally
-      setCarryOverTasks(prev => prev.filter(t => t._id !== id));
-      if (updated) {
-        setTodayTasks(prev => {
-          const next = [...prev, updated];
-          return next.sort((a,b)=> (a.due ?? "").localeCompare(b.due ?? ""));
-        });
-      } else {
-        // fallback: re-fetch
-        fetchTasks();
-      }
     } catch (err) {
       console.error("Add to today failed:", err);
       fetchTasks();
