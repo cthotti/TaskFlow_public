@@ -1,9 +1,14 @@
+// src/app/notes/[id]/page.tsx
 import NoteEditor from "@/components/NoteEditor";
 
-export default function NotePage({ params }: { params: { id: string } }) {
-  return (
-    <div className="flex w-full">
-      <NoteEditor id={params.id} />
-    </div>
-  );
+interface NotePageProps {
+  params: {
+    id: string;
+  };
+}
+
+export default function NotePage({ params }: NotePageProps) {
+  const { id } = params;
+
+  return <NoteEditor noteId={id} />;
 }

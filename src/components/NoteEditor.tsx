@@ -7,20 +7,24 @@ interface Note {
   content: string;
 }
 
-export default function NoteEditor({ id }: { id: string }) {
+interface NoteEditorProps {
+  noteId: string;
+}
+
+export default function NoteEditor({ noteId }: NoteEditorProps) {
   const [note, setNote] = useState<Note | null>(null);
 
   useEffect(() => {
-    fetch(`/api/notes/${id}`)
-      .then(res => res.json())
+    fetch(`/api/notes/${noteId}`)
+      .then((res) => res.json())
       .then(setNote);
-  }, [id]);
+  }, [noteId]);
 
   const saveNote = async (field: string, value: string) => {
     if (!note) return;
     const updated = { ...note, [field]: value };
     setNote(updated);
-    await fetch(`/api/notes/${id}`, {
+    await fetch(`/api/notes/${noteId}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(updated),
