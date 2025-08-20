@@ -17,7 +17,7 @@ export default function Home() {
 
   return (
     <div className="min-h-screen p-10 bg-[#0B0909]-900 text-white">
-      <h1 className="text-4xl text-center mb-6 font-bold text-[#DED9D3]-400">EasyNotion</h1>
+      <h1 className="text-4xl text-center mb-6 font-bold text-[#DED9D3]-400">Cal∀Stdnts</h1>
       <TodoList />
       <div className="text-center mt-10">
         <h2 className="text-2xl mb-4">Gmail Analyzer</h2>
