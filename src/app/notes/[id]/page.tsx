@@ -1,12 +1,11 @@
 // src/app/notes/[id]/page.tsx
 import NoteEditor from "@/components/NoteEditor";
 
-// Don't import PageProps from 'next'. Define a simple local type instead.
 type Props = {
-  params: { id: string };
+  params: Promise<{ id: string }>; // ✅ mark as Promise
 };
 
-export default function NotePage({ params }: Props) {
-  const { id } = params;
+export default async function NotePage({ params }: Props) {
+  const { id } = await params; // ✅ await params
   return <NoteEditor noteId={id} />;
 }
