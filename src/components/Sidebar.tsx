@@ -7,7 +7,11 @@ interface Note {
   title: string;
 }
 
-export default function Sidebar() {
+interface SidebarProps {
+  beforeNavigate?: () => Promise<void>; // function passed in from NoteEditor
+}
+
+export default function Sidebar({ beforeNavigate }: SidebarProps) {
   const [notes, setNotes] = useState<Note[]>([]);
   const router = useRouter();
 
@@ -17,7 +21,13 @@ export default function Sidebar() {
       .then((data) => setNotes(data));
   }, []);
 
+  const navigate = async (path: string) => {
+    if (beforeNavigate) await beforeNavigate(); // ✅ save first
+    router.push(path);
+  };
+
   const addNote = async () => {
+    if (beforeNavigate) await beforeNavigate();
     const res = await fetch("/api/notes", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -30,26 +40,27 @@ export default function Sidebar() {
 
   return (
     <div className="flex flex-col w-28 bg-black text-white items-center pt-10">
-      {/* Home + Notes section */}
-      <div className="flex flex-col space-y-6 pb-6 items-center">
+      <div className="flex flex-col space-y-6 pb-6 items-center mt-16">
+        {/* Home */}
         <button
-          onClick={() => router.push("/")}
-          className="w-16 py-2 bg-white text-black rounded-lg font-medium shadow-md hover:bg-gray-200"
+          onClick={() => navigate("/")}
+          className="w-20 py-2 bg-white text-black rounded-lg font-medium shadow-md hover:bg-gray-200"
         >
           Home
         </button>
 
-        {notes.map((n, i) => (
+        {/* Notes */}
+        {notes.map((n) => (
           <button
             key={n._id}
-            onClick={() => router.push(`/notes/${n._id}`)}
-            className="w-16 py-2 bg-gray-100 text-black rounded-lg shadow-sm hover:bg-gray-200"
+            onClick={() => navigate(`/notes/${n._id}`)}
+            className="w-20 py-2 bg-gray-100 text-black rounded-lg shadow-sm hover:bg-gray-200 truncate"
           >
-            {`Note ${i + 1}`}
+            {n.title || "Untitled"}
           </button>
         ))}
 
-        {/* Plain + button */}
+        {/* Add new note */}
         <button
           onClick={addNote}
           className="text-3xl font-bold text-white hover:text-gray-300"
@@ -58,7 +69,6 @@ export default function Sidebar() {
         </button>
       </div>
 
-      {/* Task features */}
       <div className="mt-6 text-center text-gray-400 text-sm">
         Task Features
       </div>
