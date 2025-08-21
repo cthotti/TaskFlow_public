@@ -6,25 +6,36 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   await connectDB();
   const { id } = req.query;
 
-  if (req.method === "GET") {
-    const note = await Note.findById(id);
-    return res.status(200).json(note);
-  }
+  try {
+    if (req.method === "GET") {
+      const note = await Note.findById(id);
+      if (!note) return res.status(404).json({ message: "Note not found" });
+      return res.status(200).json(note);
+    }
 
-  if (req.method === "PATCH") {
-    const { title, content } = req.body;
-    const updated = await Note.findByIdAndUpdate(
-      id,
-      { title, content },
-      { new: true }
-    );
-    return res.status(200).json(updated);
-  }
+    if (req.method === "PATCH") {
+      const body = req.body;
 
-  if (req.method === "DELETE") {
-    await Note.findByIdAndDelete(id);
-    return res.status(200).json({ message: "Note deleted" });
-  }
+      // ✅ Update only provided fields (no overwriting missing ones)
+      const updated = await Note.findByIdAndUpdate(
+        id,
+        { $set: body },
+        { new: true, runValidators: true }
+      );
 
-  return res.status(405).end();
+      if (!updated) return res.status(404).json({ message: "Note not found" });
+      return res.status(200).json(updated);
+    }
+
+    if (req.method === "DELETE") {
+      const deleted = await Note.findByIdAndDelete(id);
+      if (!deleted) return res.status(404).json({ message: "Note not found" });
+      return res.status(200).json({ message: "Note deleted" });
+    }
+
+    return res.status(405).json({ message: "Method Not Allowed" });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ message: "Server Error" });
+  }
 }
