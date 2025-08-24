@@ -2,6 +2,7 @@
 import { useState } from "react";
 import TodoList from "@/components/TodoList";
 import Sidebar from "@/components/Sidebar";
+import Calendar from "@/components/Calendar";
 
 export default function Home() {
   const [message, setMessage] = useState("");
@@ -44,6 +45,13 @@ export default function Home() {
           </button>
           {message && <p className="mt-4">{message}</p>}
         </div>
+
+        {/* Calendar Section (new) */}
+        <div className="mt-12">
+          <h2 className="text-2xl text-center mb-6">Calendar</h2>
+          <Calendar />
+        </div>
+
       </div>
     </div>
   );
