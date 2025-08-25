@@ -3,31 +3,46 @@ import { NextApiRequest, NextApiResponse } from "next";
 import connectDB from "@/lib/db";
 import Task from "@/models/Task";
 
+function getLocalToday(): string {
+  // YYYY-MM-DD in server's local timezone (avoids UTC shifting issues)
+  try {
+    return new Date().toLocaleDateString("en-CA");
+  } catch {
+    // Fallback if ICU not available
+    return new Date().toISOString().split("T")[0];
+  }
+}
+
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   await connectDB();
 
   if (req.method === "GET") {
     try {
-      const todayStr = new Date().toISOString().split("T")[0];
+      // Selected date sent from the client (YYYY-MM-DD). If absent, default to today.
+      const selectedDate = typeof req.query.date === "string" ? req.query.date : getLocalToday();
+      const todayStr = getLocalToday();
 
-      // ✅ Move overdue tasks into carryOver
-      await Task.updateMany(
-        { completed: false, carryOver: false, date: { $ne: todayStr } },
-        { $set: { carryOver: true } }
-      );
+      // ✅ Only when viewing "today" do we update DB to mark overdue tasks as carryOver.
+      // Browsing other days must NEVER mutate state.
+      if (selectedDate === todayStr) {
+        await Task.updateMany(
+          {
+            completed: false,
+            carryOver: false,
+            // strictly before today
+            date: { $lt: todayStr },
+          },
+          { $set: { carryOver: true } }
+        );
+      }
 
-      // Fetch all updated tasks
-      const tasks = await Task.find({});
-
-      const todayTasks = tasks.filter(
-        (t) => !t.completed && !t.carryOver && t.date === todayStr
-      );
-
-      const carryOverTasks = tasks.filter(
-        (t) => !t.completed && t.carryOver
-      );
-
-      const completedTasks = tasks.filter((t) => t.completed);
+      // Query with precise filters instead of fetching everything
+      const [todayTasks, carryOverTasks, completedTasks] = await Promise.all([
+        Task.find({ completed: false, carryOver: false, date: selectedDate }),
+        // backlog up to the selected date
+        Task.find({ completed: false, carryOver: true, date: { $lte: selectedDate } }),
+        Task.find({ completed: true }), // keep as-is; filter by date if you prefer
+      ]);
 
       return res.status(200).json({
         today: todayTasks,
@@ -42,17 +57,22 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   if (req.method === "POST") {
     try {
-      const { text, due, description } = req.body;
+      const { text, due, description, date } = req.body;
+
+      if (!text || !date) {
+        return res.status(400).json({ error: "Task text and date are required" });
+      }
+
       const colors = ["#8C8C8C"];
       const color = colors[Math.floor(Math.random() * colors.length)];
-      const todayStr = new Date().toISOString().split("T")[0];
 
       const task = await Task.create({
         text,
         description: description ?? "",
         due,
         color,
-        date: todayStr,
+        // ✅ store the exact YYYY-MM-DD string from the client (no conversions)
+        date,
         completed: false,
         carryOver: false,
       });

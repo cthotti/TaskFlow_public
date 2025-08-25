@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import Sidebar from "@/components/Sidebar";
 
 interface Note {
@@ -12,11 +12,16 @@ interface NoteEditorProps {
   noteId: string;
 }
 
+// tiny arrows
+const ARROW_FILLED = "➔";
+const ARROW_HOLLOW = "➝";
+const INDENT_STR = "    "; // 4 spaces
+
 export default function NoteEditor({ noteId }: NoteEditorProps) {
   const [note, setNote] = useState<Note | null>(null);
   const [loaded, setLoaded] = useState(false);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  // Fetch note once
   useEffect(() => {
     (async () => {
       const res = await fetch(`/api/notes/${noteId}`);
@@ -26,7 +31,6 @@ export default function NoteEditor({ noteId }: NoteEditorProps) {
     })();
   }, [noteId]);
 
-  // Save note (manual trigger, called by Sidebar)
   const saveNote = async () => {
     if (!note) return;
     await fetch(`/api/notes/${noteId}`, {
@@ -34,6 +38,231 @@ export default function NoteEditor({ noteId }: NoteEditorProps) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ title: note.title, content: note.content }),
     });
+  };
+
+  // auto-expand
+  useEffect(() => {
+    if (textareaRef.current) {
+      const ta = textareaRef.current;
+      const prevTop = ta.scrollTop;
+      ta.style.height = "auto";
+      ta.style.height = ta.scrollHeight + "px";
+      ta.scrollTop = prevTop; // prevent viewport jump
+    }
+  }, [note?.content]);
+
+  // ---------- helpers
+  const markerRe = /^(\s*)(\d+|[A-Z]|[a-z])\s(➔|➝)\s/;
+
+  const getMarker = (level: number, index: number) => {
+    // level: 0=number➔, 1=Upper➔, 2=lower➔, 3=number➝
+    if (level === 0) return `${index + 1} ${ARROW_FILLED} `;
+    if (level === 1) return `${String.fromCharCode(65 + index)} ${ARROW_FILLED} `;
+    if (level === 2) return `${String.fromCharCode(97 + index)} ${ARROW_FILLED} `;
+    return `${index + 1} ${ARROW_HOLLOW} `;
+  };
+
+  const detectLevel = (token: string, arrow: string) => {
+    if (/^\d+$/.test(token) && arrow === ARROW_FILLED) return 0;
+    if (/^[A-Z]$/.test(token)) return 1;
+    if (/^[a-z]$/.test(token)) return 2;
+    if (/^\d+$/.test(token) && arrow === ARROW_HOLLOW) return 3;
+    return 0;
+  };
+
+  const lineBounds = (text: string, caret: number) => {
+    const start = text.lastIndexOf("\n", caret - 1) + 1;
+    const end = text.indexOf("\n", caret);
+    return { start, end: end === -1 ? text.length : end };
+  };
+
+  // nearest previous numeric at same indent → next number
+  const nextNumberAtIndent = (text: string, uptoIndex: number, indent: string) => {
+    const upText = text.slice(0, uptoIndex);
+    const lines = upText.split("\n");
+    for (let i = lines.length - 1; i >= 0; i--) {
+      const m = lines[i].match(markerRe);
+      if (m && m[1] === indent && /^\d+$/.test(m[2])) {
+        return parseInt(m[2], 10) + 1;
+      }
+    }
+    return 1;
+  };
+
+  const replaceCurrentLine = (
+    text: string,
+    lineStart: number,
+    lineEnd: number,
+    newLine: string
+  ) => text.slice(0, lineStart) + newLine + text.slice(lineEnd);
+
+  // ---------- key handling
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (!textareaRef.current || !note) return;
+
+    const ta = textareaRef.current;
+    const caret = ta.selectionStart;
+    const text = note.content;
+    const { start: lineStart, end: lineEnd } = lineBounds(text, caret);
+    const line = text.slice(lineStart, lineEnd);
+
+    // 1) "-" + space at start → start/continue numbered list at indent (Docs-like)
+    if (e.key === " " && line.trim() === "-") {
+      e.preventDefault();
+
+      const baseIndent = (line.match(/^(\s*)-$/) || ["", ""])[1];
+      const indent = baseIndent || INDENT_STR; // ensure slight outdent from page edge
+      const nextNum = nextNumberAtIndent(text, lineStart, indent);
+      const newLine = `${indent}${nextNum} ${ARROW_FILLED} `;
+
+      const updated = replaceCurrentLine(text, lineStart, lineEnd, newLine);
+      setNote({ ...note, content: updated });
+
+      requestAnimationFrame(() => {
+        const pos = lineStart + newLine.length;
+        ta.selectionStart = ta.selectionEnd = pos;
+      });
+      return;
+    }
+
+    // 2) Enter → continue series (numbers/Upper/lower/hollow numbers)
+    if (e.key === "Enter") {
+      const m = line.match(markerRe);
+      if (m) {
+        e.preventDefault();
+        const indent = m[1];
+        const token = m[2];
+        const arrow = m[3];
+        const level = detectLevel(token, arrow);
+
+        let nextMarker = "";
+        if (level === 0 || level === 3) {
+          const n = parseInt(token, 10) + 1;
+          nextMarker = `${n} ${arrow} `;
+        } else if (level === 1) {
+          const idx = token.charCodeAt(0) - 65 + 1;
+          nextMarker = getMarker(1, idx);
+        } else {
+          const idx = token.charCodeAt(0) - 97 + 1;
+          nextMarker = getMarker(2, idx);
+        }
+
+        const insertion = `\n${indent}${nextMarker}`;
+        const updated = text.slice(0, caret) + insertion + text.slice(caret);
+        setNote({ ...note, content: updated });
+
+        requestAnimationFrame(() => {
+          ta.selectionStart = ta.selectionEnd = caret + insertion.length;
+        });
+        return;
+      }
+    }
+
+    // 3) Tab → indent & cycle style:
+    //    number➔  --Tab-->   (indent+1)  A➔
+    //    A➔       --Tab-->               a➔
+    //    a➔       --Tab-->               number➝
+    //    number➝  --Tab-->   (outdent-1) number➔
+    if (e.key === "Tab" && !e.shiftKey) {
+      const m = line.match(markerRe);
+      if (m) {
+        e.preventDefault();
+
+        let indent = m[1];
+        const token = m[2];
+        const arrow = m[3];
+        let level = detectLevel(token, arrow);
+
+        // first tab when at this indent: add one level & go to A➔
+        if (level === 0 && indent.length >= 0) {
+          indent = indent + INDENT_STR;
+          level = 1;
+        } else if (level === 1) {
+          level = 2;
+        } else if (level === 2) {
+          level = 3;
+        } else {
+          // number➝ → number➔ and outdent
+          level = 0;
+          if (indent.length >= INDENT_STR.length) {
+            indent = indent.slice(0, -INDENT_STR.length);
+          }
+        }
+
+        // choose index for numeric styles at this indent
+        let idx = 0;
+        if (level === 0 || level === 3) {
+          const nextNum = nextNumberAtIndent(text, lineStart, indent);
+          idx = nextNum - 1;
+        }
+
+        const rest = line.replace(markerRe, "");
+        const newMarker =
+          level === 1 ? `A ${ARROW_FILLED} `
+          : level === 2 ? `a ${ARROW_FILLED} `
+          : getMarker(level, idx);
+        const newLine = `${indent}${newMarker}${rest}`;
+
+        const updated = replaceCurrentLine(text, lineStart, lineEnd, newLine);
+        setNote({ ...note, content: updated });
+
+        requestAnimationFrame(() => {
+          const pos = lineStart + indent.length + newMarker.length;
+          ta.selectionStart = ta.selectionEnd = pos; // caret stays on same visual line
+        });
+        return;
+      }
+    }
+
+    // 4) Shift+Tab → cycle backward & outdent sensibly
+    if (e.key === "Tab" && e.shiftKey) {
+      const m = line.match(markerRe);
+      if (m) {
+        e.preventDefault();
+
+        let indent = m[1];
+        const token = m[2];
+        const arrow = m[3];
+        let level = detectLevel(token, arrow);
+
+        if (level === 0) {
+          // numeric➔ → numeric➝ at parent level
+          if (indent.length >= INDENT_STR.length) {
+            indent = indent.slice(0, -INDENT_STR.length);
+          }
+          level = 3;
+        } else if (level === 3) {
+          level = 2;
+        } else if (level === 2) {
+          level = 1;
+        } else {
+          // A➔ → number➔ (keep indent)
+          level = 0;
+        }
+
+        let idx = 0;
+        if (level === 0 || level === 3) {
+          const nextNum = nextNumberAtIndent(text, lineStart, indent);
+          idx = nextNum - 1;
+        }
+
+        const rest = line.replace(markerRe, "");
+        const newMarker =
+          level === 1 ? `A ${ARROW_FILLED} `
+          : level === 2 ? `a ${ARROW_FILLED} `
+          : getMarker(level, idx);
+        const newLine = `${indent}${newMarker}${rest}`;
+
+        const updated = replaceCurrentLine(text, lineStart, lineEnd, newLine);
+        setNote({ ...note, content: updated });
+
+        requestAnimationFrame(() => {
+          const pos = lineStart + indent.length + newMarker.length;
+          ta.selectionStart = ta.selectionEnd = pos;
+        });
+        return;
+      }
+    }
   };
 
   if (!loaded || !note) {
@@ -50,29 +279,24 @@ export default function NoteEditor({ noteId }: NoteEditorProps) {
     <div className="flex min-h-screen bg-[#0B0909] text-white">
       <Sidebar beforeNavigate={saveNote} />
       <div className="w-px bg-gray-600" />
-      <main className="flex-1 flex flex-col p-10 items-center">
-        <div className="w-full max-w-3xl">
-          {/* Title */}
+      <main className="flex-1 flex flex-col px-6 py-10">
+        <div className="w-full max-w-5xl mx-auto">
           <input
             type="text"
             value={note.title}
             onChange={(e) => setNote({ ...note, title: e.target.value })}
             placeholder="Untitled Note"
-            className="w-full bg-[#0B0909] border border-black outline-none 
-                       text-4xl font-bold tracking-tight mb-3 text-white"
+            className="w-full bg-transparent border-none outline-none text-4xl font-bold tracking-tight mb-2 text-white"
           />
-
-          {/* Divider */}
-          <div className="w-3/4 h-px bg-gray-600 mb-6"></div>
-
-          {/* Body */}
+          <div className="w-full h-px bg-gray-600 mb-6"></div>
           <textarea
+            ref={textareaRef}
             value={note.content}
             onChange={(e) => setNote({ ...note, content: e.target.value })}
+            onKeyDown={handleKeyDown}
             placeholder="Start typing here..."
-            className="w-full bg-[#0B0909] border border-black outline-none 
-                       text-lg leading-7 text-gray-200 resize-none"
-            style={{ minHeight: "70vh" }}
+            className="w-full bg-transparent border-none outline-none text-lg leading-7 text-gray-200 resize-none overflow-hidden"
+            style={{ minHeight: "calc(100vh - 200px)", whiteSpace: "pre-wrap" }}
           />
         </div>
       </main>

@@ -15,6 +15,7 @@ type Task = {
   color?: string;
   completed?: boolean;
   carryOver?: boolean;
+  date?: string;
 };
 
 export default function TodoList() {
@@ -33,12 +34,21 @@ export default function TodoList() {
   ];
 
   const fetchTasks = async () => {
-    const res = await fetch(`/api/tasks?date=${selectedDate}`);
-    const data = await res.json();
-    setTodayTasks(data.today);
-    setCarryOverTasks(data.carryOver ?? []);
-    setCompletedTasks(data.completed ?? []);
-  };
+  if (!selectedDate) {
+    setTodayTasks([]);
+    setCarryOverTasks([]);
+    setCompletedTasks([]);
+    return;
+  }
+
+  const res = await fetch(`/api/tasks?date=${selectedDate}`);
+  const data = await res.json();
+
+  // ✅ Ensure only current date tasks show
+  setTodayTasks(data.today ?? []);
+  setCarryOverTasks(data.carryOver ?? []);
+  setCompletedTasks(data.completed ?? []);
+};
 
   const addTask = async () => {
     if (!newTask || !dueTime) return;

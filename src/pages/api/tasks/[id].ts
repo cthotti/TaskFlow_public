@@ -12,24 +12,18 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   if (req.method === "PATCH") {
-    const { completed, carryOver } = req.body;
+    const { completed, carryOver, date } = req.body;
     const updateData: any = {};
 
     if (completed !== undefined) updateData.completed = completed;
+    if (carryOver !== undefined) updateData.carryOver = carryOver;
 
-    if (carryOver !== undefined) {
-      updateData.carryOver = carryOver;
-
-      // if moving back to today, reset the date field to today
-      if (carryOver === false) {
-        const todayStr = new Date().toISOString().split("T")[0];
-        updateData.date = todayStr;
-      }
+    // ✅ If moving task back to today, use provided date (from frontend TaskContext)
+    if (carryOver === false && date) {
+      updateData.date = date;
     }
 
     const updated = await Task.findByIdAndUpdate(id, updateData, { new: true });
     return res.status(200).json({ task: updated });
   }
-
-  return res.status(405).end();
 }
