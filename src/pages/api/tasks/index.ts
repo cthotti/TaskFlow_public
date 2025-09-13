@@ -22,7 +22,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       const selectedDate = typeof req.query.date === "string" ? req.query.date : getLocalToday();
       const todayStr = getLocalToday();
 
-      // ✅ Only when viewing "today" do we update DB to mark overdue tasks as carryOver.
+      // ✅ Only when datviewing "today" do we upe DB to mark overdue tasks as carryOver.
       // Browsing other days must NEVER mutate state.
       if (selectedDate === todayStr) {
         await Task.updateMany(

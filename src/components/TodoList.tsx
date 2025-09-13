@@ -28,11 +28,6 @@ export default function TodoList() {
   const [dueTime, setDueTime] = useState("");
   const { selectedDate } = useTaskContext();  // ✅ get date from context
 
-  const pastelColors = [
-    "#FFDEE9", "#B5FFFC", "#C9FFBF", "#FFD6A5", "#FEC5E5",
-    "#D5AAFF", "#FFFACD", "#C1F0F6", "#FFB3BA", "#BAFFC9"
-  ];
-
   const fetchTasks = async () => {
   if (!selectedDate) {
     setTodayTasks([]);
