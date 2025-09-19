@@ -3,18 +3,33 @@ import { useState } from "react";
 import TodoList from "@/components/TodoList";
 import Sidebar from "@/components/Sidebar";
 import Calendar from "@/components/Calendar";
+import ExtractedTasks from "@/components/ExtractedTasks";
 
 export default function Home() {
-  const [message, setMessage] = useState("");
+  const [showExtracted, setShowExtracted] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const callBackend = async () => {
-    const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/analyze`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ input: "test" }),
-    });
-    const data = await res.json();
-    setMessage(data.message || "No response");
+    try {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/analyze`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}), // no input required for now
+      });
+
+      if (!res.ok) {
+        const err = await res.json();
+        setError(err.error || "Failed to analyze emails.");
+        return;
+      }
+
+      // ✅ Success: show ExtractedTasks component
+      setShowExtracted(true);
+      setError(null);
+    } catch (err: any) {
+      console.error("Analyze error:", err);
+      setError("Unexpected error running analyzer.");
+    }
   };
 
   return (
@@ -43,15 +58,21 @@ export default function Home() {
           >
             Analyze Emails
           </button>
-          {message && <p className="mt-4">{message}</p>}
+          {error && <p className="mt-4 text-red-400">{error}</p>}
         </div>
 
-        {/* Calendar Section (new) */}
+        {/* ✅ Extracted Tasks Section */}
+        {showExtracted && (
+          <div className="mt-6">
+            <ExtractedTasks />
+          </div>
+        )}
+
+        {/* Calendar Section */}
         <div className="mt-12">
           <h2 className="text-2xl text-center mb-6">Calendar</h2>
           <Calendar />
         </div>
-
       </div>
     </div>
   );
