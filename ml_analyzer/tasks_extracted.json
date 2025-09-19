@@ -1,0 +1,37 @@
+{
+  "all_accounts": [
+    {
+      "type": "task",
+      "title": "AI Presentation",
+      "description": "Prepare a presentation on emerging trends in artificial intelligence for Introduction to Machine Learning.",
+      "date": "2025-09-24",
+      "time": null,
+      "source_subject": "Tasks",
+      "source_from": "Chetan Thotti <cthotti@ucsd.edu>",
+      "confidence": 0.9,
+      "_source_account": "all_accounts"
+    },
+    {
+      "type": "task",
+      "title": "Documentation for Scheduling Tool",
+      "description": "Draft documentation, including a \"Getting Started\" guide, for a collaborative scheduling tool.",
+      "date": "2025-10-02",
+      "time": null,
+      "source_subject": "Tasks",
+      "source_from": "Chetan Thotti <cthotti@ucsd.edu>",
+      "confidence": 0.9,
+      "_source_account": "all_accounts"
+    },
+    {
+      "type": "task",
+      "title": "Essay on Technology and Communication",
+      "description": "Write a 5–6 page essay analyzing the role of technology in shaping modern communication for freshman writing seminar.",
+      "date": "2025-09-29",
+      "time": null,
+      "source_subject": "Tasks",
+      "source_from": "Chetan Thotti <cthotti@ucsd.edu>",
+      "confidence": 0.9,
+      "_source_account": "all_accounts"
+    }
+  ]
+}
