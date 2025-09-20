@@ -1,3 +1,4 @@
+// src/components/ExtractedTasks.tsx
 "use client";
 import { useEffect, useState } from "react";
 
@@ -12,10 +13,11 @@ type ExtractedTask = {
   confidence?: number;
   addedToCalendar?: boolean;
   _source_account?: string;
+  source_email_ts?: string | null;
 };
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"; // FastAPI backend
-const FRONTEND_URL = process.env.NEXT_PUBLIC_FRONTEND_URL || "https://gmail-ai-analyzer.vercel.app";
+const NEXT_API = "/api/extracted";
+const FASTAPI_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"; // kept for auth endpoints
 
 export default function ExtractedTasks() {
   const [tasks, setTasks] = useState<ExtractedTask[]>([]);
@@ -25,30 +27,29 @@ export default function ExtractedTasks() {
   const [authQueue, setAuthQueue] = useState<string[]>([]);
   const [authInProgress, setAuthInProgress] = useState<string | null>(null);
 
+  // Fetch from Next API (DB-backed)
   const fetchTasks = async () => {
     try {
-      const res = await fetch(`${API_URL}/email_state`);
+      const res = await fetch(NEXT_API);
       if (!res.ok) {
         setTasks([]);
         return;
       }
       const data = await res.json();
-      const flat: ExtractedTask[] = [];
-      Object.keys(data || {}).forEach((acc) => {
-        (data[acc] || []).forEach((it: any) => flat.push(it));
-      });
-      setTasks(flat);
+      setTasks(data || []);
     } catch (e) {
-      console.error("fetch email_state failed", e);
+      console.error("fetch extracted tasks failed", e);
       setTasks([]);
     }
   };
 
+  // Delete uses Next API
   const deleteTask = async (id: string) => {
-    await fetch(`${API_URL}/email_state?id=${id}`, { method: "DELETE" });
+    await fetch(`${NEXT_API}?id=${id}`, { method: "DELETE" });
     await fetchTasks();
   };
 
+  // Add to calendar: create a task in your Tasks DB and mark extracted as added
   const addToCalendar = async (task: ExtractedTask) => {
     await fetch("/api/tasks", {
       method: "POST",
@@ -61,7 +62,7 @@ export default function ExtractedTasks() {
       }),
     });
 
-    await fetch(`${API_URL}/email_state`, {
+    await fetch(NEXT_API, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ id: task._id, addedToCalendar: true }),
@@ -70,9 +71,35 @@ export default function ExtractedTasks() {
     await fetchTasks();
   };
 
+  // Start backend analyze (FastAPI) - that service should call Next /api/extracted?action=ingest afterwards.
+  const analyzeViaFastAPI = async (emails: string[]) => {
+    setAnalyzeLoading(true);
+    setMissingAuth([]);
+    try {
+      const res = await fetch(`${FASTAPI_BASE}/analyze`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ emails }),
+      });
+      const data = await res.json();
+      // if FastAPI returns missing_auth, show it (FastAPI should return missing_auth)
+      if (data && data.missing_auth) {
+        setMissingAuth(data.missing_auth || []);
+      } else {
+        // After FastAPI analyzed, it should have saved and/or called ingest; we will just refresh
+        await fetchTasks();
+      }
+    } catch (e) {
+      console.error("analyze failed", e);
+    } finally {
+      setAnalyzeLoading(false);
+    }
+  };
+
+  // Request auth via FastAPI (keeps existing flow)
   const requestAuthFor = async (email: string) => {
     try {
-      const res = await fetch(`${API_URL}/start_auth`, {
+      const res = await fetch(`${FASTAPI_BASE}/start_auth`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email }),
@@ -80,7 +107,8 @@ export default function ExtractedTasks() {
       const data = await res.json();
       if (data.auth_url) {
         setAuthInProgress(email);
-        window.location.href = data.auth_url; // redirect instead of open new tab
+        // redirect user (keeps sequential approach)
+        window.location.href = data.auth_url;
       } else {
         console.warn("no auth_url returned", data);
       }
@@ -89,67 +117,33 @@ export default function ExtractedTasks() {
     }
   };
 
-  const analyzeEmails = async (emails: string[]) => {
-    setAnalyzeLoading(true);
-    setMissingAuth([]);
-    try {
-      const res = await fetch(`${API_URL}/analyze`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ emails }),
-      });
-      const data = await res.json();
+  // If you want the frontend to directly call Next ingest (optional)
+  // call POST /api/extracted?action=ingest with accounts payload returned from FastAPI analysis.
 
-      if (data && data.missing_auth) {
-        setMissingAuth(data.missing_auth || []);
-        setAuthQueue(data.missing_auth || []);
-        if (data.missing_auth.length > 0) {
-          await requestAuthFor(data.missing_auth[0]); // kick off first
-        }
-        setAnalyzeLoading(false);
-        return;
-      }
-
-      await fetchTasks();
-    } catch (e) {
-      console.error("analyze failed", e);
-    } finally {
-      setAnalyzeLoading(false);
-    }
-  };
-
-  // when page loads, check URL for ?auth=success
   useEffect(() => {
+    // detect OAuth callback from FastAPI (frontend redirect after auth returns to FRONTEND_URL/?auth=success&email=...)
     const url = new URL(window.location.href);
     const auth = url.searchParams.get("auth");
     const email = url.searchParams.get("email");
-
     if (auth === "success" && email) {
-      console.log(`✅ Authorized ${email}`);
-      // remove query params from URL
-      window.history.replaceState({}, document.title, FRONTEND_URL);
-
-      // continue with next email in queue
+      console.log("Authorized:", email);
+      window.history.replaceState({}, document.title, "/");
       setAuthInProgress(null);
       setAuthQueue((prev) => {
         const remaining = prev.filter((e) => e !== email);
         if (remaining.length > 0) {
+          // trigger auth for next
           requestAuthFor(remaining[0]);
         }
         return remaining;
       });
     }
-  }, []);
 
-  useEffect(() => {
     fetchTasks();
   }, []);
 
   const onConnectClick = async () => {
-    const emails = emailInput
-      .split(",")
-      .map((s) => s.trim())
-      .filter(Boolean);
+    const emails = emailInput.split(",").map((s) => s.trim()).filter(Boolean);
     setAuthQueue(emails);
     if (emails.length > 0) {
       await requestAuthFor(emails[0]);
@@ -157,11 +151,9 @@ export default function ExtractedTasks() {
   };
 
   const onAnalyzeClick = async () => {
-    const emails = emailInput
-      .split(",")
-      .map((s) => s.trim())
-      .filter(Boolean);
-    await analyzeEmails(emails);
+    const emails = emailInput.split(",").map((s) => s.trim()).filter(Boolean);
+    // use FastAPI analyze route which will call the AI pipeline and should call Next ingest
+    await analyzeViaFastAPI(emails);
   };
 
   return (
@@ -183,16 +175,28 @@ export default function ExtractedTasks() {
           <button onClick={onAnalyzeClick} className="px-3 py-1 bg-green-600 rounded">
             {analyzeLoading ? "Analyzing..." : "Analyze"}
           </button>
-          <button onClick={fetchTasks} className="px-3 py-1 bg-gray-600 rounded">
-            Refresh
-          </button>
+          <button onClick={fetchTasks} className="px-3 py-1 bg-gray-600 rounded">Refresh</button>
         </div>
       </div>
 
       {authInProgress && (
         <div className="mb-3 p-3 bg-[#111] border border-blue-700 rounded">
-          <div className="text-sm text-blue-200">
-            Authorizing: {authInProgress}... follow the Google popup.
+          <div className="text-sm text-blue-200">Authorizing: {authInProgress}...</div>
+        </div>
+      )}
+
+      {missingAuth.length > 0 && (
+        <div className="mb-3 p-3 bg-[#111] border border-yellow-700 rounded">
+          <div className="text-sm mb-2 text-yellow-200">Missing authorization for these accounts:</div>
+          <div className="flex flex-col space-y-2">
+            {missingAuth.map((m) => (
+              <div key={m} className="flex items-center justify-between">
+                <div className="text-sm">{m}</div>
+                <div className="flex space-x-2">
+                  <button onClick={() => requestAuthFor(m)} className="px-2 py-1 bg-orange-600 rounded">Connect</button>
+                </div>
+              </div>
+            ))}
           </div>
         </div>
       )}
@@ -202,37 +206,18 @@ export default function ExtractedTasks() {
           <p className="text-gray-400 text-sm">No extracted tasks</p>
         ) : (
           tasks.map((t) => (
-            <div
-              key={t._id}
-              className="bg-[#1e1e1e] border border-gray-600 rounded-md p-3 text-white flex justify-between items-center"
-            >
+            <div key={t._id} className="bg-[#1e1e1e] border border-gray-600 rounded-md p-3 text-white flex justify-between items-center">
               <div>
                 <p className="font-medium">{t.title}</p>
                 {t.description && <p className="text-xs text-gray-400">{t.description}</p>}
-                {t.date && (
-                  <p className="text-xs text-gray-500">
-                    Due: {t.date} {t.time ?? ""}
-                  </p>
-                )}
-                <p className="text-xs text-gray-500">
-                  From: {t.source_from} ({t._source_account})
-                </p>
+                {t.date && <p className="text-xs text-gray-500">Due: {t.date} {t.time ?? ""}</p>}
+                <p className="text-xs text-gray-500">From: {t.source_from} ({t._source_account})</p>
               </div>
               <div className="flex space-x-2 text-xs">
                 {!t.addedToCalendar && (
-                  <button
-                    onClick={() => addToCalendar(t)}
-                    className="px-2 py-1 bg-green-600 hover:bg-green-500 rounded"
-                  >
-                    Add
-                  </button>
+                  <button onClick={() => addToCalendar(t)} className="px-2 py-1 bg-green-600 hover:bg-green-500 rounded">Add</button>
                 )}
-                <button
-                  onClick={() => deleteTask(t._id!)}
-                  className="px-2 py-1 bg-red-600 hover:bg-red-500 rounded"
-                >
-                  ×
-                </button>
+                <button onClick={() => deleteTask(t._id!)} className="px-2 py-1 bg-red-600 hover:bg-red-500 rounded">×</button>
               </div>
             </div>
           ))
