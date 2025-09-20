@@ -43,7 +43,7 @@ export default function Home() {
       {/* Main content area */}
       <div className="flex-1 flex flex-col p-10">
         <h1 className="text-4xl text-center mb-6 font-bold text-[#EAEAEA]">
-          Cal∀Stdnts
+          TaskFlow
         </h1>
 
         {/* Task features */}
@@ -62,11 +62,10 @@ export default function Home() {
         </div>
 
         {/* ✅ Extracted Tasks Section */}
-        {showExtracted && (
-          <div className="mt-6">
-            <ExtractedTasks />
-          </div>
-        )}
+        <div className="mt-6">
+          <ExtractedTasks />
+        </div>
+
 
         {/* Calendar Section */}
         <div className="mt-12">
