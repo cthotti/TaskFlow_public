@@ -3,6 +3,7 @@ from __future__ import print_function
 import os
 import re
 import json
+import google.auth
 import base64
 from google.auth.exceptions import RefreshError
 from googleapiclient.errors import HttpError
@@ -11,7 +12,6 @@ from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import Flow
 from googleapiclient.discovery import build
-import uuid
 
 # Gmail Readonly scope
 SCOPES = ['https://www.googleapis.com/auth/gmail.readonly']
@@ -27,11 +27,8 @@ BLOCKED_SENDERS = [
 STATE_FILE = "email_state.json"
 TOKENS_DIR = "tokens"
 OAUTH_STATE_FILE = "oauth_state.json"
-CLIENT_SECRETS_FILE = os.getenv("CLIENT_SECRETS_FILE", "credentials.json")
-# Default BACKEND_URL should be your Render backend; override via env on Render
-BACKEND_BASE = os.getenv("BACKEND_URL", "https://gmail-ai-analyzer.onrender.com")
-# FRONTEND_URL used to redirect users after oauth
-FRONTEND_URL = os.getenv("FRONTEND_URL", "https://gmail-ai-analyzer.vercel.app")
+CLIENT_SECRETS_FILE = "credentials.json"
+BACKEND_BASE = os.getenv("BACKEND_URL", "http://localhost:8000")  # used for redirect_uri
 
 def safe_filename(email):
     """Sanitize email so we can use it as a filename."""
@@ -45,7 +42,7 @@ def load_state():
 
 def save_state(state):
     with open(STATE_FILE, "w") as f:
-        json.dump(state, f, indent=2)
+        json.dump(state, f)
 
 def _token_path_for(email):
     os.makedirs(TOKENS_DIR, exist_ok=True)
@@ -59,7 +56,7 @@ def _oauth_state_load():
 
 def _oauth_state_save(state_map):
     with open(OAUTH_STATE_FILE, "w") as f:
-        json.dump(state_map, f, indent=2)
+        json.dump(state_map, f)
 
 def ensure_creds(email: str, force_reauth: bool = False):
     """
@@ -97,46 +94,35 @@ def generate_authorization_url(email: str):
     """
     Create an OAuth authorization URL for the given email. Save state->email mapping.
     Returns (auth_url, state).
-    - Uses login_hint to pre-select the provided email in Google's account picker.
-    - Stores the mapping in OAUTH_STATE_FILE so multiple simultaneous flows are supported.
     """
     redirect_uri = BACKEND_BASE.rstrip("/") + "/oauth2callback"
-    # Use a Flow instance
     flow = Flow.from_client_secrets_file(
         CLIENT_SECRETS_FILE,
         scopes=SCOPES,
         redirect_uri=redirect_uri
     )
-
-    # include login_hint to prefer the target email
     auth_url, state = flow.authorization_url(
         access_type='offline',
         include_granted_scopes='true',
-        prompt='consent',
-        login_hint=email
+        prompt='consent'
     )
 
     # persist state -> email mapping so callback can save the right token
     state_map = _oauth_state_load()
-    # store some metadata: email and timestamp so we can debug later
-    state_map[state] = {"email": email, "created_at": datetime.utcnow().isoformat()}
+    state_map[state] = email
     _oauth_state_save(state_map)
 
     return auth_url, state
 
 def exchange_code_for_token(state: str, code: str):
     """
-    Exchange code from oauth callback for tokens and save to tokens/<safe_filename(email)>.json
+    Exchange code from oauth callback for tokens and save to tokens/<email>.json
     Returns the email for which token was saved.
     """
     state_map = _oauth_state_load()
-    mapping = state_map.get(state)
-    if not mapping:
-        raise RuntimeError("Unknown OAuth state")
-
-    email = mapping.get("email")
+    email = state_map.get(state)
     if not email:
-        raise RuntimeError("State mapping missing email")
+        raise RuntimeError("Unknown OAuth state")
 
     redirect_uri = BACKEND_BASE.rstrip("/") + "/oauth2callback"
     flow = Flow.from_client_secrets_file(
@@ -149,7 +135,6 @@ def exchange_code_for_token(state: str, code: str):
     flow.fetch_token(code=code)
     creds = flow.credentials
     token_path = _token_path_for(email)
-    os.makedirs(TOKENS_DIR, exist_ok=True)
     with open(token_path, "w") as f:
         f.write(creds.to_json())
 
@@ -158,7 +143,6 @@ def exchange_code_for_token(state: str, code: str):
         del state_map[state]
         _oauth_state_save(state_map)
     except Exception:
-        # ignore cleanup errors
         pass
 
     return email
@@ -169,7 +153,7 @@ def is_blocked(sender):
     return any(blocked in sender for blocked in BLOCKED_SENDERS)
 
 def fetch_latest_emails(service, email, max_results=20):
-    """Fetch metadata + body of the latest emails."""
+    """Fetch metadata + body of the latest emails (unchanged from your version)."""
     results = service.users().messages().list(
         userId=email,
         q='in:inbox',
@@ -184,28 +168,26 @@ def fetch_latest_emails(service, email, max_results=20):
             userId=email, id=msg['id'], format='full'
         ).execute()
 
-        headers = msg_data['payload'].get('headers', [])
-        subject = next((h['value'] for h in headers if h.get('name') == 'Subject'), '(no subject)')
-        sender = next((h['value'] for h in headers if h.get('name') == 'From'), '(unknown sender)')
-        date_hdr = next((h['value'] for h in headers if h.get('name') == 'Date'), '(no date)')
+        headers = msg_data['payload']['headers']
+        subject = next((h['value'] for h in headers if h['name'] == 'Subject'), '(no subject)')
+        sender = next((h['value'] for h in headers if h['name'] == 'From'), '(unknown sender)')
+        date_hdr = next((h['value'] for h in headers if h['name'] == 'Date'), '(no date)')
 
         ts = datetime.fromtimestamp(
-            int(msg_data.get('internalDate', 0))/1000, tz=timezone.utc
+            int(msg_data['internalDate'])/1000, tz=timezone.utc
         ).astimezone()
 
         if is_blocked(sender):
             continue
 
         body = ""
-        payload = msg_data.get('payload', {})
-        parts = payload.get('parts')
-        if parts:
-            for part in parts:
-                if part.get('mimeType') == 'text/plain' and part.get('body', {}).get('data'):
+        if 'parts' in msg_data['payload']:
+            for part in msg_data['payload']['parts']:
+                if part.get('mimeType') == 'text/plain' and 'data' in part.get('body', {}):
                     body = base64.urlsafe_b64decode(part['body']['data']).decode('utf-8', errors="ignore")
                     break
-        elif payload.get('body', {}).get('data'):
-            body = base64.urlsafe_b64decode(payload['body']['data']).decode('utf-8', errors="ignore")
+        elif 'body' in msg_data['payload'] and 'data' in msg_data['payload']['body']:
+            body = base64.urlsafe_b64decode(msg_data['payload']['body']['data']).decode('utf-8', errors="ignore")
 
         emails.append({
             "subject": subject,
@@ -230,7 +212,7 @@ def filter_new_emails(email, emails, state):
             if not max_ts or ts.isoformat() > max_ts:
                 max_ts = ts.isoformat()
 
-    # Update last seen timestamp
+    # ✅ Update last seen timestamp
     if max_ts:
         state[email] = max_ts
 
@@ -264,8 +246,12 @@ def fetch_for_emails(email_list, max_results=20):
     save_state(state)
     return {"emails_by_account": emails_by_account, "missing_auth": missing_auth}
 
-# Keep your old CLI-style `main()` for local usage.
+# Keep your old CLI-style `main()` for local usage (unchanged or lightly tweaked).
 def main():
+    """
+    Interactive CLI entry retained for local debugging.
+    When running via backend / frontend, prefer fetch_for_emails().
+    """
     state = load_state()
     raw_input = input("Enter email addresses (comma separated): ").strip()
     email_list = [e.strip() for e in raw_input.split(",") if e.strip()]
@@ -281,6 +267,7 @@ def main():
         # Interactive fallback: if no saved token, perform local server flow
         creds = ensure_creds(email)
         if not creds:
+            # fallback to interactive flow
             flow = Flow.from_client_secrets_file(CLIENT_SECRETS_FILE, scopes=SCOPES)
             creds = flow.run_local_server(port=0)
             token_path = _token_path_for(email)

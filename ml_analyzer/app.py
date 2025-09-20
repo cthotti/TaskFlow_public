@@ -13,14 +13,11 @@ import model_utils
 
 app = FastAPI()
 
-# allow both local dev and production origins; ensure you add your actual origins on Render env if needed
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "http://localhost:3000",
-        "http://localhost:8000",
         "https://gmail-ai-analyzer.vercel.app",
-        "https://gmail-ai-analyzer.onrender.com",
     ],
     allow_credentials=True,
     allow_methods=["*"],
@@ -29,26 +26,24 @@ app.add_middleware(
 
 EMAIL_STATE_FILE = os.path.join(os.path.dirname(__file__), "email_state.json")
 
+
 @app.post("/start_auth")
 async def start_auth(request: Request):
     """
     Request body JSON: { "email": "user@example.com" }
-    Returns: { "auth_url": "https://accounts.google.com/...", "state": "..." }
+    Returns: { "auth_url": "https://accounts.google.com/..." }
     """
-    try:
-        data = await request.json()
-    except Exception:
-        return JSONResponse({"error": "invalid json"}, status_code=400)
-
+    data = await request.json()
     email = data.get("email")
     if not email:
         return JSONResponse({"error": "email required"}, status_code=400)
 
     try:
         auth_url, state = model_utils.generate_authorization_url(email)
-        return JSONResponse({"auth_url": auth_url, "state": state}, status_code=200)
+        return JSONResponse({"auth_url": auth_url, "state": state})
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
+
 
 @app.get("/oauth2callback")
 def oauth2callback(code: str = Query(None), state: str = Query(None)):
@@ -62,20 +57,15 @@ def oauth2callback(code: str = Query(None), state: str = Query(None)):
     try:
         email = model_utils.exchange_code_for_token(state, code)
         # Redirect back to frontend (adjust FRONTEND_URL if needed)
-        frontend = os.getenv("FRONTEND_URL", "https://gmail-ai-analyzer.vercel.app")
+        frontend = os.getenv("FRONTEND_URL", "http://localhost:3000")
         redirect_to = f"{frontend}/?auth=success&email={email}"
         return RedirectResponse(redirect_to)
     except Exception as e:
         return HTMLResponse(f"<h1>Auth failed: {e}</h1>", status_code=500)
 
+
 @app.post("/analyze")
 async def analyze(request: Request):
-    """
-    POST body: { "emails": ["a@x.com","b@y.com"] }
-    If emails array present, run programmatic extraction for those accounts.
-    If some accounts need auth, returns {"missing_auth": [emails...]}.
-    Otherwise returns mapping { account_email: [extracted_items...] } and saves to file.
-    """
     try:
         payload = await request.json()
     except Exception:
@@ -85,25 +75,22 @@ async def analyze(request: Request):
 
     try:
         if emails and isinstance(emails, list):
-            # programmatic fetch for these specific emails
-            result = ai_utils.analyze_for_emails(emails, save_output=False)
+            res = ai_utils.analyze_for_emails(emails, save_output=True)
         else:
-            # fallback: old behavior (interactive/automatic); may call CLI flow in ai_utils
-            result = ai_utils.analyze_all_from_model_utils(save_output=False)
+            # fallback only for dev CLI
+            res = ai_utils.analyze_all_from_model_utils(save_output=True)
 
-        # If result signals missing auth, forward that to client
-        if isinstance(result, dict) and result.get("missing_auth"):
-            return JSONResponse({"missing_auth": result["missing_auth"]}, status_code=200)
+        if isinstance(res, dict) and res.get("missing_auth"):
+            return JSONResponse({"missing_auth": res["missing_auth"]}, status_code=200)
 
-        # Normalize and add IDs, then persist to EMAIL_STATE_FILE
+        # Add IDs, normalize, and save
         saved = {}
-        for account, items in result.items():
-            saved_list = []
+        for account, items in res.items():
+            saved[account] = []
             for it in items:
                 it.setdefault("_id", uuid.uuid4().hex)
                 it.setdefault("addedToCalendar", False)
-                saved_list.append(it)
-            saved[account] = saved_list
+                saved[account].append(it)
 
         with open(EMAIL_STATE_FILE, "w", encoding="utf-8") as f:
             json.dump(saved, f, ensure_ascii=False, indent=2)
@@ -113,6 +100,8 @@ async def analyze(request: Request):
     except Exception as e:
         print(f"ERROR in /analyze: {e}")
         return JSONResponse({"error": str(e)}, status_code=500)
+
+
 
 @app.get("/email_state")
 def get_email_state():
@@ -135,6 +124,7 @@ def get_email_state():
             content={"error": f"Failed to load email_state.json: {str(e)}"},
             status_code=500,
         )
+
 
 @app.patch("/email_state")
 async def patch_email_state(request: Request):
@@ -171,6 +161,7 @@ async def patch_email_state(request: Request):
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
 
+
 @app.delete("/email_state")
 def delete_email_state(id: str = Query(None)):
     """
@@ -201,6 +192,7 @@ def delete_email_state(id: str = Query(None)):
             return JSONResponse({"error": "id not found"}, status_code=404)
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
+
 
 @app.get("/date")
 def get_current_date():
