@@ -66,12 +66,6 @@ def oauth2callback(code: str = Query(None), state: str = Query(None)):
 
 @app.post("/analyze")
 async def analyze(request: Request):
-    """
-    POST body: { "emails": ["a@x.com","b@y.com"] }
-    If emails array present, run programmatic extraction for those accounts.
-    If missing_auth returned, forward that to client.
-    If empty or not provided, fallback to full CLI-style pipeline (useful for dev).
-    """
     try:
         payload = await request.json()
     except Exception:
@@ -81,27 +75,22 @@ async def analyze(request: Request):
 
     try:
         if emails and isinstance(emails, list):
-            res = ai_utils.analyze_for_emails(emails)
+            res = ai_utils.analyze_for_emails(emails, save_output=True)
         else:
-            # fallback: old behavior (interactive/automatic); may call CLI flow
+            # fallback only for dev CLI
             res = ai_utils.analyze_all_from_model_utils(save_output=True)
 
-        # If result indicates missing auth, forward that
         if isinstance(res, dict) and res.get("missing_auth"):
             return JSONResponse({"missing_auth": res["missing_auth"]}, status_code=200)
 
-        # Add unique ids and normalize items before saving to EMAIL_STATE_FILE
-        # res is mapping { account: [items...] }
+        # Add IDs, normalize, and save
         saved = {}
         for account, items in res.items():
-            saved_list = []
+            saved[account] = []
             for it in items:
-                # ensure id and flags
-                if "_id" not in it:
-                    it["_id"] = uuid.uuid4().hex
+                it.setdefault("_id", uuid.uuid4().hex)
                 it.setdefault("addedToCalendar", False)
-                saved_list.append(it)
-            saved[account] = saved_list
+                saved[account].append(it)
 
         with open(EMAIL_STATE_FILE, "w", encoding="utf-8") as f:
             json.dump(saved, f, ensure_ascii=False, indent=2)
@@ -111,6 +100,7 @@ async def analyze(request: Request):
     except Exception as e:
         print(f"ERROR in /analyze: {e}")
         return JSONResponse({"error": str(e)}, status_code=500)
+
 
 
 @app.get("/email_state")

@@ -160,34 +160,35 @@ def analyze_single_email(email_record: Dict[str, Any], retries: int = MAX_RETRIE
     return []
 
 # ---------- New: analyze_for_emails ----------
-def analyze_for_emails(email_list: List[str], max_results_per_account: int = 20) -> Dict[str, Any]:
-    """
-    Programmatic entrypoint: fetch emails for the provided accounts using model_utils.fetch_for_emails,
-    then run extraction on each email and return a mapping { account: [extracted items...] }.
-    If some accounts are missing credentials, returns { "missing_auth": [emails...] }.
-    """
-    fetch_result = model_utils.fetch_for_emails(email_list, max_results=max_results_per_account)
-    missing = fetch_result.get("missing_auth", [])
-    if missing:
-        return {"missing_auth": missing}
 
+def analyze_for_emails(email_list, save_output: bool = True) -> dict:
+    """
+    Non-interactive analysis for a list of emails.
+    Calls model_utils.fetch_for_emails to get data per account,
+    then runs Gemini extraction.
+    """
+    fetch_result = model_utils.fetch_for_emails(email_list)
     emails_by_account = fetch_result.get("emails_by_account", {})
+    missing_auth = fetch_result.get("missing_auth", [])
+
+    if missing_auth:
+        return {"missing_auth": missing_auth}
 
     result: Dict[str, List[Dict[str, Any]]] = {}
     for account, emails in emails_by_account.items():
         result[account] = []
-        for idx, email_record in enumerate(emails, start=1):
+        for email_record in emails:
             extracted = analyze_single_email(email_record)
             for item in extracted:
                 item["_source_account"] = account
             result[account].extend(extracted)
 
-    # Save output (same format as before)
-    with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
-        json.dump(result, f, ensure_ascii=False, indent=2)
-    print(f"Saved extracted tasks/events to {OUTPUT_FILE}")
+    if save_output:
+        with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
+            json.dump(result, f, ensure_ascii=False, indent=2)
 
     return result
+
 
 
 def analyze_all_from_model_utils(save_output: bool = True) -> Dict[str, List[Dict[str, Any]]]:
