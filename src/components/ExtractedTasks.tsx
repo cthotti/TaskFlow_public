@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 
 type ExtractedTask = {
-  _id?: string;
+  _id?: any; // could be ObjectId or string; we'll stringify when needed
   title: string;
   description?: string;
   date?: string;
@@ -36,21 +36,42 @@ export default function ExtractedTasks() {
   const [authQueue, setAuthQueue] = useState<string[]>([]);
   const [authInProgress, setAuthInProgress] = useState<string | null>(null);
 
-  // per-task loading states keyed by actual Mongo _id
+  // per-task loading states keyed by stringified Mongo _id
   const [taskLoading, setTaskLoading] = useState<Record<string, boolean>>({});
 
-  // Fetch Tasks
+  // ---- helpers ----
+  const stringifyId = (id?: any) => {
+    if (!id && id !== 0) return undefined;
+    try {
+      return String(id);
+    } catch {
+      return undefined;
+    }
+  };
+
+  // ---- Fetch Tasks ----
   const fetchTasks = async () => {
     try {
       const res = await fetch(TASKS_API);
-      setTasks(res.ok ? await res.json() : []);
+      if (!res.ok) {
+        console.error("fetch tasks failed", await res.text().catch(() => ""));
+        setTasks([]);
+        return;
+      }
+      const data = await res.json();
+      // ensure each task has _id as a string if possible
+      const normalized = (data || []).map((t: ExtractedTask) => ({
+        ...t,
+        _id: stringifyId(t._id),
+      }));
+      setTasks(normalized);
     } catch (e) {
       console.error("fetch extracted tasks failed", e);
       setTasks([]);
     }
   };
 
-  // Fetch Accounts
+  // ---- Fetch Accounts ----
   const fetchAccounts = async () => {
     try {
       const res = await fetch(ACCOUNTS_API);
@@ -61,33 +82,36 @@ export default function ExtractedTasks() {
     }
   };
 
-  // Delete Task (requires real _id)
+  // ---- Delete Task ----
   const deleteTask = async (id?: string) => {
-    if (!id) {
+    const realId = stringifyId(id);
+    if (!realId) {
       console.warn("deleteTask called without a real _id — ignoring.");
       alert("Cannot delete: missing task id.");
       return;
     }
-    setTaskLoading((s) => ({ ...s, [id]: true }));
+    setTaskLoading((s) => ({ ...s, [realId]: true }));
     try {
-      const res = await fetch(`${TASKS_API}?id=${encodeURIComponent(id)}`, { method: "DELETE" });
+      const res = await fetch(`${TASKS_API}?id=${encodeURIComponent(realId)}`, {
+        method: "DELETE",
+      });
       if (!res.ok) {
         const txt = await res.text().catch(() => "no response body");
         throw new Error(`Delete failed: ${res.status} ${txt}`);
       }
-      // remove from UI
-      setTasks((prev) => prev.filter((t) => t._id !== id));
+      // optimistic UI update
+      setTasks((prev) => prev.filter((t) => stringifyId(t._id) !== realId));
     } catch (err) {
       console.error("deleteTask failed", err);
       alert("Failed to delete task. See console for details.");
     } finally {
-      setTaskLoading((s) => ({ ...s, [id]: false }));
+      setTaskLoading((s) => ({ ...s, [realId]: false }));
     }
   };
 
-  // Add to Calendar (requires real _id)
+  // ---- Add to Calendar ----
   const addToCalendar = async (task: ExtractedTask) => {
-    const id = task._id;
+    const id = stringifyId(task._id);
     if (!id) {
       console.warn("task._id missing, cannot add to calendar");
       alert("Cannot add to calendar: missing task id.");
@@ -127,10 +151,11 @@ export default function ExtractedTasks() {
         console.warn("Failed to mark task as added on server:", patchRes.status, text);
         alert("Event created but failed to update task state. Check logs.");
       } else {
-        setTasks((prev) => prev.map((t) => (t._id === id ? { ...t, addedToCalendar: true } : t)));
+        // update local copy
+        setTasks((prev) => prev.map((t) => (stringifyId(t._id) === id ? { ...t, addedToCalendar: true } : t)));
       }
 
-      // refresh accounts/tasks
+      // refresh accounts/tasks (keep UI consistent)
       await fetchAccounts();
       await fetchTasks();
     } catch (err) {
@@ -141,7 +166,7 @@ export default function ExtractedTasks() {
     }
   };
 
-  // Analyze via FastAPI
+  // ---- Analyze via FastAPI ----
   const analyzeViaFastAPI = async (emails: string[]) => {
     setAnalyzeLoading(true);
     setMissingAuth([]);
@@ -155,6 +180,7 @@ export default function ExtractedTasks() {
       if (data && data.missing_auth) {
         setMissingAuth(data.missing_auth || []);
       } else {
+        // important: fetch tasks after analyze so we get persisted docs with _id
         await fetchTasks();
         await fetchAccounts();
       }
@@ -165,7 +191,7 @@ export default function ExtractedTasks() {
     }
   };
 
-  // Request Auth
+  // ---- Request Auth ----
   const requestAuthFor = async (email: string) => {
     try {
       const res = await fetch(`${FASTAPI_BASE}/start_auth`, {
@@ -206,11 +232,12 @@ export default function ExtractedTasks() {
       fetchTasks();
     }
 
+    // initial load
     fetchTasks();
     fetchAccounts();
   }, []);
 
-  // Connect: save accounts then request auth
+  // ---- Connect: save accounts then request auth ----
   const onConnectClick = async () => {
     const emails = emailInput.split(",").map((s) => s.trim()).filter(Boolean);
     setAuthQueue(emails);
@@ -285,7 +312,7 @@ export default function ExtractedTasks() {
           <p className="text-gray-400 text-sm">No extracted tasks</p>
         ) : (
           tasks.map((t) => {
-            const realId = t._id ?? undefined; // only real DB id
+            const realId = stringifyId(t._id);
             const loading = !!(realId && taskLoading[realId]);
             return (
               <div key={realId ?? `${t._source_account}-${t.source_email_ts}-${t.title}`} className="bg-[#1e1e1e] border border-gray-600 rounded-md p-3 text-white flex justify-between items-center">
