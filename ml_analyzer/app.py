@@ -115,7 +115,7 @@ async def analyze(request: Request):
         try:
             client = MongoClient(mongo_uri, serverSelectionTimeoutMS=5000)
             client.admin.command("ping")
-            db = client["gmail_ai"]
+            db = client["gmail-analyzer"]
             tasks_col = db["extractedtasks"]
             accounts_col = db["extractedaccounts"]
             logger.info(f"Connected to MongoDB at {mongo_uri}")

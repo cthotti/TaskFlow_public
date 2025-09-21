@@ -39,7 +39,7 @@ accounts_col = None
 try:
     client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
     client.admin.command("ping")  # surface connection errors now
-    db = client["gmail_ai"]
+    db = client["gmail-analyzer"]
     tokens_col = db["tokens"]        # { email, creds_json }
     state_col = db["states"]         # { email, last_ts }
     oauth_col = db["oauth_states"]   # { state, email, created_at }
