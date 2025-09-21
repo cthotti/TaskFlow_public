@@ -16,40 +16,54 @@ type ExtractedTask = {
   source_email_ts?: string | null;
 };
 
-const NEXT_API = "/api/extracted";
-const FASTAPI_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"; // kept for auth endpoints
+type ExtractedAccount = {
+  _id?: string;
+  email: string;
+  lastEmailTs?: string | null;
+};
+
+const TASKS_API = "/api/extracted";
+const ACCOUNTS_API = "/api/accounts";
+const FASTAPI_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 export default function ExtractedTasks() {
   const [tasks, setTasks] = useState<ExtractedTask[]>([]);
+  const [accounts, setAccounts] = useState<ExtractedAccount[]>([]);
   const [emailInput, setEmailInput] = useState("");
   const [analyzeLoading, setAnalyzeLoading] = useState(false);
   const [missingAuth, setMissingAuth] = useState<string[]>([]);
   const [authQueue, setAuthQueue] = useState<string[]>([]);
   const [authInProgress, setAuthInProgress] = useState<string | null>(null);
 
-  // Fetch from Next API (DB-backed)
+  // ---- Fetch Tasks ----
   const fetchTasks = async () => {
     try {
-      const res = await fetch(NEXT_API);
-      if (!res.ok) {
-        setTasks([]);
-        return;
-      }
-      const data = await res.json();
-      setTasks(data || []);
+      const res = await fetch(TASKS_API);
+      setTasks(res.ok ? await res.json() : []);
     } catch (e) {
       console.error("fetch extracted tasks failed", e);
       setTasks([]);
     }
   };
 
-  // Delete uses Next API
+  // ---- Fetch Accounts ----
+  const fetchAccounts = async () => {
+    try {
+      const res = await fetch(ACCOUNTS_API);
+      setAccounts(res.ok ? await res.json() : []);
+    } catch (e) {
+      console.error("fetch accounts failed", e);
+      setAccounts([]);
+    }
+  };
+
+  // ---- Delete Task ----
   const deleteTask = async (id: string) => {
-    await fetch(`${NEXT_API}?id=${id}`, { method: "DELETE" });
+    await fetch(`${TASKS_API}?id=${id}`, { method: "DELETE" });
     await fetchTasks();
   };
 
-  // Add to calendar: create a task in your Tasks DB and mark extracted as added
+  // ---- Add to Calendar ----
   const addToCalendar = async (task: ExtractedTask) => {
     await fetch("/api/tasks", {
       method: "POST",
@@ -62,7 +76,7 @@ export default function ExtractedTasks() {
       }),
     });
 
-    await fetch(NEXT_API, {
+    await fetch(TASKS_API, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ id: task._id, addedToCalendar: true }),
@@ -71,7 +85,7 @@ export default function ExtractedTasks() {
     await fetchTasks();
   };
 
-  // Start backend analyze (FastAPI) - that service should call Next /api/extracted?action=ingest afterwards.
+  // ---- Analyze via FastAPI ----
   const analyzeViaFastAPI = async (emails: string[]) => {
     setAnalyzeLoading(true);
     setMissingAuth([]);
@@ -82,12 +96,11 @@ export default function ExtractedTasks() {
         body: JSON.stringify({ emails }),
       });
       const data = await res.json();
-      // if FastAPI returns missing_auth, show it (FastAPI should return missing_auth)
       if (data && data.missing_auth) {
         setMissingAuth(data.missing_auth || []);
       } else {
-        // After FastAPI analyzed, it should have saved and/or called ingest; we will just refresh
         await fetchTasks();
+        await fetchAccounts();
       }
     } catch (e) {
       console.error("analyze failed", e);
@@ -96,7 +109,7 @@ export default function ExtractedTasks() {
     }
   };
 
-  // Request auth via FastAPI (keeps existing flow)
+  // ---- Request Auth ----
   const requestAuthFor = async (email: string) => {
     try {
       const res = await fetch(`${FASTAPI_BASE}/start_auth`, {
@@ -107,60 +120,63 @@ export default function ExtractedTasks() {
       const data = await res.json();
       if (data.auth_url) {
         setAuthInProgress(email);
-        // redirect user (keeps sequential approach)
         window.location.href = data.auth_url;
-      } else {
-        console.warn("no auth_url returned", data);
       }
     } catch (e) {
       console.error("start_auth failed", e);
     }
   };
 
-  // If you want the frontend to directly call Next ingest (optional)
-  // call POST /api/extracted?action=ingest with accounts payload returned from FastAPI analysis.
-
   useEffect(() => {
-    // detect OAuth callback from FastAPI (frontend redirect after auth returns to FRONTEND_URL/?auth=success&email=...)
+    // Handle OAuth callback
     const url = new URL(window.location.href);
     const auth = url.searchParams.get("auth");
     const email = url.searchParams.get("email");
     if (auth === "success" && email) {
-      console.log("Authorized:", email);
       window.history.replaceState({}, document.title, "/");
       setAuthInProgress(null);
       setAuthQueue((prev) => {
         const remaining = prev.filter((e) => e !== email);
-        if (remaining.length > 0) {
-          // trigger auth for next
-          requestAuthFor(remaining[0]);
-        }
+        if (remaining.length > 0) requestAuthFor(remaining[0]);
         return remaining;
       });
+      fetchAccounts();
     }
 
     fetchTasks();
+    fetchAccounts();
   }, []);
 
+  // ---- Connect: save accounts in DB, then request auth ----
   const onConnectClick = async () => {
     const emails = emailInput.split(",").map((s) => s.trim()).filter(Boolean);
     setAuthQueue(emails);
-    if (emails.length > 0) {
-      await requestAuthFor(emails[0]);
+
+    // Save each email in Mongo first
+    for (const email of emails) {
+      await fetch(ACCOUNTS_API, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email }),
+      });
     }
+    await fetchAccounts();
+
+    // Begin auth with first email
+    if (emails.length > 0) await requestAuthFor(emails[0]);
   };
 
   const onAnalyzeClick = async () => {
     const emails = emailInput.split(",").map((s) => s.trim()).filter(Boolean);
-    // use FastAPI analyze route which will call the AI pipeline and should call Next ingest
     await analyzeViaFastAPI(emails);
   };
 
   return (
     <div className="p-4">
-      <h2 className="text-lg font-bold text-white mb-2">Extracted from Gmail</h2>
+      <h2 className="text-lg font-bold text-white mb-4">Extracted from Gmail</h2>
 
-      <div className="mb-3">
+      {/* Input for emails */}
+      <div className="mb-4">
         <label className="text-sm text-gray-300">Emails (comma separated)</label>
         <input
           value={emailInput}
@@ -175,33 +191,32 @@ export default function ExtractedTasks() {
           <button onClick={onAnalyzeClick} className="px-3 py-1 bg-green-600 rounded">
             {analyzeLoading ? "Analyzing..." : "Analyze"}
           </button>
-          <button onClick={fetchTasks} className="px-3 py-1 bg-gray-600 rounded">Refresh</button>
+          <button onClick={() => {fetchTasks(); fetchAccounts();}} className="px-3 py-1 bg-gray-600 rounded">
+            Refresh
+          </button>
         </div>
       </div>
 
-      {authInProgress && (
-        <div className="mb-3 p-3 bg-[#111] border border-blue-700 rounded">
-          <div className="text-sm text-blue-200">Authorizing: {authInProgress}...</div>
-        </div>
-      )}
-
-      {missingAuth.length > 0 && (
-        <div className="mb-3 p-3 bg-[#111] border border-yellow-700 rounded">
-          <div className="text-sm mb-2 text-yellow-200">Missing authorization for these accounts:</div>
-          <div className="flex flex-col space-y-2">
-            {missingAuth.map((m) => (
-              <div key={m} className="flex items-center justify-between">
-                <div className="text-sm">{m}</div>
-                <div className="flex space-x-2">
-                  <button onClick={() => requestAuthFor(m)} className="px-2 py-1 bg-orange-600 rounded">Connect</button>
-                </div>
-              </div>
+      {/* Connected Accounts */}
+      <div className="mb-6">
+        <h3 className="text-md font-semibold text-white mb-2">Connected Accounts</h3>
+        {accounts.length === 0 ? (
+          <p className="text-gray-400 text-sm">No accounts connected</p>
+        ) : (
+          <ul className="space-y-2">
+            {accounts.map((acc) => (
+              <li key={acc._id} className="bg-[#1e1e1e] border border-gray-600 rounded-md p-2 text-white flex justify-between">
+                <span>{acc.email}</span>
+                <span className="text-xs text-gray-400">Last sync: {acc.lastEmailTs || "never"}</span>
+              </li>
             ))}
-          </div>
-        </div>
-      )}
+          </ul>
+        )}
+      </div>
 
+      {/* Tasks */}
       <div className="space-y-3">
+        <h3 className="text-md font-semibold text-white mb-2">Extracted Tasks</h3>
         {tasks.length === 0 ? (
           <p className="text-gray-400 text-sm">No extracted tasks</p>
         ) : (

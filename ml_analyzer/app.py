@@ -72,47 +72,66 @@ def oauth2callback(code: str = Query(None), state: str = Query(None)):
 async def analyze(request: Request):
     """
     POST body: { "emails": ["a@x.com","b@y.com"] }
-    If emails array present, run programmatic extraction for those accounts.
-    If some accounts need auth, returns {"missing_auth": [emails...]}.
-    Otherwise returns mapping { account_email: [extracted_items...] } and saves to file.
+    Uses saved tokens to fetch Gmail, extract tasks, and persist them to Mongo.
     """
     try:
         payload = await request.json()
+        emails = payload.get("emails", [])
     except Exception:
-        payload = {}
+        return JSONResponse({"error": "invalid json"}, status_code=400)
 
-    emails = payload.get("emails", None)
+    if not emails or not isinstance(emails, list):
+        return JSONResponse({"error": "emails list required"}, status_code=400)
 
     try:
-        if emails and isinstance(emails, list):
-            # programmatic fetch for these specific emails
-            result = ai_utils.analyze_for_emails(emails, save_output=False)
-        else:
-            # fallback: old behavior (interactive/automatic); may call CLI flow in ai_utils
-            result = ai_utils.analyze_all_from_model_utils(save_output=False)
+        result = model_utils.fetch_for_emails(emails, max_results=20)
+        missing = result.get("missing_auth", [])
+        if missing:
+            return JSONResponse({"missing_auth": missing}, status_code=200)
 
-        # If result signals missing auth, forward that to client
-        if isinstance(result, dict) and result.get("missing_auth"):
-            return JSONResponse({"missing_auth": result["missing_auth"]}, status_code=200)
+        # AI extraction
+        from ai_utils import extract_tasks_from_emails
+        from pymongo import MongoClient
+        from bson import ObjectId
 
-        # Normalize and add IDs, then persist to EMAIL_STATE_FILE
-        saved = {}
-        for account, items in result.items():
-            saved_list = []
-            for it in items:
-                it.setdefault("_id", uuid.uuid4().hex)
-                it.setdefault("addedToCalendar", False)
-                saved_list.append(it)
-            saved[account] = saved_list
+        client = MongoClient(os.getenv("MONGO_URI", "mongodb://localhost:27017"))
+        db = client["gmail_ai"]
+        tasks_col = db["extractedtasks"]
+        accounts_col = db["extractedaccounts"]
 
-        with open(EMAIL_STATE_FILE, "w", encoding="utf-8") as f:
-            json.dump(saved, f, ensure_ascii=False, indent=2)
+        all_inserted = []
 
-        return JSONResponse(saved, status_code=200)
+        for acct, emails in result["emails_by_account"].items():
+            tasks = extract_tasks_from_emails(emails, acct)
+            if not tasks:
+                continue
+
+            # upsert each task
+            for t in tasks:
+                t["_source_account"] = acct
+                t.setdefault("_id", str(ObjectId()))
+                tasks_col.update_one(
+                    {"_source_account": acct, "source_email_ts": t.get("source_email_ts")},
+                    {"$set": t},
+                    upsert=True
+                )
+                all_inserted.append(t)
+
+            # update lastEmailTs
+            if emails:
+                last_ts = max(e["date"] for e in emails)
+                accounts_col.update_one(
+                    {"email": acct},
+                    {"$set": {"lastEmailTs": last_ts}},
+                    upsert=True
+                )
+
+        return JSONResponse({"inserted": len(all_inserted)}, status_code=200)
 
     except Exception as e:
         print(f"ERROR in /analyze: {e}")
         return JSONResponse({"error": str(e)}, status_code=500)
+
 
 @app.get("/email_state")
 def get_email_state():
