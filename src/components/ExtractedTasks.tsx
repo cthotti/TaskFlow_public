@@ -36,6 +36,9 @@ export default function ExtractedTasks() {
   const [authQueue, setAuthQueue] = useState<string[]>([]);
   const [authInProgress, setAuthInProgress] = useState<string | null>(null);
 
+  // per-task loading states keyed by task._id
+  const [taskLoading, setTaskLoading] = useState<Record<string, boolean>>({});
+
   // ---- Fetch Tasks ----
   const fetchTasks = async () => {
     try {
@@ -60,30 +63,88 @@ export default function ExtractedTasks() {
 
   // ---- Delete Task ----
   const deleteTask = async (id: string) => {
-    await fetch(`${TASKS_API}?id=${id}`, { method: "DELETE" });
-    await fetchTasks();
+    if (!id) return;
+    setTaskLoading((s) => ({ ...s, [id]: true }));
+    try {
+      const res = await fetch(`${TASKS_API}?id=${encodeURIComponent(id)}`, { method: "DELETE" });
+      if (!res.ok) {
+        const txt = await res.text().catch(() => "no response body");
+        throw new Error(`Delete failed: ${res.status} ${txt}`);
+      }
+      // optimistically remove from UI
+      setTasks((prev) => prev.filter((t) => t._id !== id));
+    } catch (e) {
+      console.error("deleteTask failed", e);
+      alert("Failed to delete task. See console for details.");
+    } finally {
+      setTaskLoading((s) => ({ ...s, [id]: false }));
+    }
   };
 
   // ---- Add to Calendar ----
   const addToCalendar = async (task: ExtractedTask) => {
-    await fetch("/api/tasks", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
+    const id = task._id;
+    if (!id) {
+      console.warn("task has no _id, skipping add");
+      return;
+    }
+    setTaskLoading((s) => ({ ...s, [id]: true }));
+
+    try {
+      // Build payload for calendar API. Use the backend-provided date/time.
+      const payload: any = {
         text: task.title,
         description: task.description,
-        due: task.time,
-        date: task.date,
-      }),
-    });
+        date: task.date || null,
+        due: task.time || null,
+        // include source metadata so backend can attach it to the created calendar item if desired
+        metadata: { source_account: task._source_account, source_email_ts: task.source_email_ts },
+      };
 
-    await fetch(TASKS_API, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id: task._id, addedToCalendar: true }),
-    });
+      const res = await fetch("/api/tasks", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
 
-    await fetchTasks();
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        throw new Error(`Calendar create failed: ${res.status} ${text}`);
+      }
+
+      // Optionally read the created event from the API response (if provided)
+      const created = await res.json().catch(() => null);
+
+      // Mark the extracted task as addedToCalendar in our DB via tasks API
+      const patchRes = await fetch(TASKS_API, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, addedToCalendar: true }),
+      });
+
+      if (!patchRes.ok) {
+        const text = await patchRes.text().catch(() => "");
+        console.warn("Failed to mark task as added on server:", patchRes.status, text);
+        // still update UI to reflect calendar add, but inform user
+        alert("Event created but failed to update local task state.");
+      } else {
+        // Update local UI state for that task
+        setTasks((prev) =>
+          prev.map((t) => (t._id === id ? { ...t, addedToCalendar: true } : t))
+        );
+      }
+
+      // refresh accounts/tasks to sync lastEmailTs if needed
+      await fetchAccounts();
+      await fetchTasks();
+
+      console.info("Event created on calendar", created);
+    } catch (e) {
+      console.error("addToCalendar failed", e);
+      alert("Failed to add to calendar. See console for details.");
+    } finally {
+      setTaskLoading((s) => ({ ...s, [id]: false }));
+    }
   };
 
   // ---- Analyze via FastAPI ----
@@ -125,9 +186,11 @@ export default function ExtractedTasks() {
         window.location.href = data.auth_url;
       } else {
         console.warn("start_auth returned no auth_url", data);
+        alert("Failed to start auth. Check server logs.");
       }
     } catch (e) {
       console.error("start_auth failed", e);
+      alert("Failed to start auth. See console.");
     }
   };
 
@@ -244,22 +307,38 @@ export default function ExtractedTasks() {
         {tasks.length === 0 ? (
           <p className="text-gray-400 text-sm">No extracted tasks</p>
         ) : (
-          tasks.map((t) => (
-            <div key={t._id} className="bg-[#1e1e1e] border border-gray-600 rounded-md p-3 text-white flex justify-between items-center">
-              <div>
-                <p className="font-medium">{t.title}</p>
-                {t.description && <p className="text-xs text-gray-400">{t.description}</p>}
-                {t.date && <p className="text-xs text-gray-500">Due: {t.date} {t.time ?? ""}</p>}
-                <p className="text-xs text-gray-500">From: {t.source_from} ({t._source_account})</p>
+          tasks.map((t) => {
+            const id = t._id || `${t._source_account}-${t.source_email_ts}-${t.title}`;
+            const loading = !!taskLoading[id];
+            return (
+              <div key={id} className="bg-[#1e1e1e] border border-gray-600 rounded-md p-3 text-white flex justify-between items-center">
+                <div>
+                  <p className="font-medium">{t.title}</p>
+                  {t.description && <p className="text-xs text-gray-400">{t.description}</p>}
+                  {t.date && <p className="text-xs text-gray-500">Due: {t.date} {t.time ?? ""}</p>}
+                  <p className="text-xs text-gray-500">From: {t.source_from} ({t._source_account})</p>
+                </div>
+                <div className="flex space-x-2 text-xs">
+                  {!t.addedToCalendar && (
+                    <button
+                      onClick={() => addToCalendar(t)}
+                      className="px-2 py-1 bg-green-600 hover:bg-green-500 rounded disabled:opacity-50"
+                      disabled={loading}
+                    >
+                      {loading ? "Adding..." : "Add"}
+                    </button>
+                  )}
+                  <button
+                    onClick={() => deleteTask(id)}
+                    className="px-2 py-1 bg-red-600 hover:bg-red-500 rounded disabled:opacity-50"
+                    disabled={loading}
+                  >
+                    {loading ? "…" : "×"}
+                  </button>
+                </div>
               </div>
-              <div className="flex space-x-2 text-xs">
-                {!t.addedToCalendar && (
-                  <button onClick={() => addToCalendar(t)} className="px-2 py-1 bg-green-600 hover:bg-green-500 rounded">Add</button>
-                )}
-                <button onClick={() => deleteTask(t._id!)} className="px-2 py-1 bg-red-600 hover:bg-red-500 rounded">×</button>
-              </div>
-            </div>
-          ))
+            );
+          })
         )}
       </div>
     </div>

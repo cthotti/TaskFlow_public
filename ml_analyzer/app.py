@@ -7,7 +7,7 @@ import json
 import os
 import logging
 
-import model_utils  # safe to import; model_utils handles DB connectivity errors gracefully
+import model_utils  # safe import (handles DB connectivity gracefully)
 
 app = FastAPI()
 
@@ -48,7 +48,7 @@ async def start_auth(request: Request):
             return JSONResponse({"error": "email required"}, status_code=400)
 
         auth_url, state = model_utils.generate_authorization_url(email)
-        logger.info(f"✅ Generated auth URL for {email}: {auth_url}")
+        logger.info(f"✅ Generated auth URL for {email}: {auth_url} (state={state})")
         return JSONResponse({"auth_url": auth_url, "state": state}, status_code=200)
 
     except Exception as e:
@@ -65,7 +65,7 @@ def oauth2callback(code: str = Query(None), state: str = Query(None)):
         return HTMLResponse("<h1>Missing code/state</h1>", status_code=400)
     try:
         email = model_utils.exchange_code_for_token(state, code)
-        frontend = os.getenv("FRONTEND_URL", "https://gmail-ai-analyzer.vercel.app").rstrip("/")
+        frontend = os.getenv("FRONTEND_URL", "http://localhost:3000").rstrip("/")
         redirect_to = f"{frontend}/?auth=success&email={email}"
         logger.info(f"✅ OAuth success for {email}, redirecting to {redirect_to}")
         return RedirectResponse(redirect_to)
@@ -78,7 +78,8 @@ def oauth2callback(code: str = Query(None), state: str = Query(None)):
 async def analyze(request: Request):
     """
     POST body: { "emails": ["a@x.com","b@y.com"] }
-    Uses saved tokens to fetch Gmail, extract tasks, and persist them to Mongo.
+    Uses ai_utils to analyze the emails (ai_utils will call model_utils.fetch_for_emails).
+    Persists extracted tasks to Mongo.
     """
     try:
         payload = await request.json()
@@ -90,24 +91,25 @@ async def analyze(request: Request):
         return JSONResponse({"error": "emails list required"}, status_code=400)
 
     try:
-        # import ai_utils lazily to avoid circular import at module import time
+        # lazy import to avoid circular imports at module import time
         import ai_utils
 
-        # 1) fetch emails via model_utils (may return missing_auth list)
-        result = model_utils.fetch_for_emails(emails, max_results=20)
-        missing = result.get("missing_auth", [])
-        if missing:
-            logger.info(f"/analyze: missing auth for {missing}")
+        # Call ai_utils high-level analysis. This will call model_utils.fetch_for_emails internally.
+        # ai_utils.analyze_for_emails returns either {"missing_auth": [...] } or { acct_email: [items...] }
+        logger.info(f"/analyze: starting AI analysis for {len(emails)} accounts")
+        analysis_result = ai_utils.analyze_for_emails(emails, save_output=False)
+
+        if not analysis_result:
+            # empty result (no items) is acceptable
+            logger.info("/analyze: ai_utils returned empty result")
+            return JSONResponse({"inserted": 0}, status_code=200)
+
+        if isinstance(analysis_result, dict) and analysis_result.get("missing_auth"):
+            missing = analysis_result.get("missing_auth", [])
+            logger.info(f"/analyze: missing auth for accounts: {missing}")
             return JSONResponse({"missing_auth": missing}, status_code=200)
 
-        # 2) determine extraction function
-        extract_fn = getattr(ai_utils, "extract_tasks_from_emails", None)
-        if extract_fn:
-            logger.info("Using ai_utils.extract_tasks_from_emails")
-        else:
-            logger.warning("ai_utils.extract_tasks_from_emails not found — falling back to simple conversion")
-
-        # 3) connect to Mongo (use MONGO_URI env)
+        # analysis_result is expected to be { account_email: [extracted_items...] }
         from pymongo import MongoClient
         from bson import ObjectId
 
@@ -118,60 +120,48 @@ async def analyze(request: Request):
             db = client["gmail-analyzer"]
             tasks_col = db["extractedtasks"]
             accounts_col = db["extractedaccounts"]
-            logger.info(f"Connected to MongoDB at {mongo_uri}")
+            logger.info(f"/analyze: connected to Mongo at {mongo_uri}")
         except Exception as e:
-            logger.exception(f"Could not connect to Mongo for /analyze: {e}")
+            logger.exception(f"/analyze: could not connect to Mongo: {e}")
             return JSONResponse({"error": "MongoDB connection failed"}, status_code=500)
 
         all_inserted = []
 
-        for acct, account_emails in result["emails_by_account"].items():
-            if not account_emails:
+        # Persist extracted items per account
+        for acct, items in analysis_result.items():
+            if not isinstance(items, list) or len(items) == 0:
                 continue
 
-            try:
-                if extract_fn:
-                    tasks = extract_fn(account_emails, acct)
+            for item in items:
+                # attach metadata
+                item["_source_account"] = acct
+                # ensure _id
+                item.setdefault("_id", str(ObjectId()))
+                # Dedup/Upsert key:
+                if item.get("source_email_ts"):
+                    key = {"_source_account": acct, "source_email_ts": item.get("source_email_ts")}
                 else:
-                    # fallback: create simple tasks from subjects
-                    tasks = []
-                    for em in account_emails:
-                        title = em.get("subject", "(no subject)")
-                        snippet = (em.get("content") or "")[:400]
-                        tasks.append({
-                            "title": title,
-                            "description": snippet,
-                            "source_subject": em.get("subject"),
-                            "source_from": em.get("from"),
-                            "source_email_ts": em.get("date"),
-                            "confidence": 1.0,
-                        })
-            except Exception as e:
-                logger.exception(f"AI extraction failed for account {acct}: {e}")
-                continue
-
-            if not tasks:
-                continue
-
-            # Upsert each task using (_source_account, source_email_ts) as de-dupe key
-            for t in tasks:
-                t["_source_account"] = acct
-                t.setdefault("_id", str(ObjectId()))
-                key = {"_source_account": acct, "source_email_ts": t.get("source_email_ts")}
+                    # fallback key using subject/title; this may create duplicates if not unique
+                    key = {"_source_account": acct, "title": item.get("title"), "source_subject": item.get("source_subject")}
                 try:
-                    tasks_col.update_one(key, {"$set": t}, upsert=True)
-                    all_inserted.append(t)
+                    tasks_col.update_one(key, {"$set": item}, upsert=True)
+                    all_inserted.append(item)
                 except Exception as e:
-                    logger.exception(f"Failed to upsert task for {acct}: {e}")
+                    logger.exception(f"/analyze: failed to upsert task for {acct} item={item}: {e}")
 
-            # Update account lastEmailTs
+            # Try update account lastEmailTs from model_utils state if possible (model_utils updates it on fetch)
             try:
-                last_ts = max(e.get("date") for e in account_emails)
-                accounts_col.update_one({"email": acct}, {"$set": {"lastEmailTs": last_ts}}, upsert=True)
+                # If model_utils updated accounts_col, this will succeed; if not present, no-op.
+                # We attempt a best-effort read of the lastEmailTs from model_utils.accounts_col if available.
+                if getattr(model_utils, "accounts_col", None) is not None:
+                    acct_doc = model_utils.accounts_col.find_one({"email": acct})
+                    if acct_doc and acct_doc.get("lastEmailTs"):
+                        accounts_col.update_one({"email": acct}, {"$set": {"lastEmailTs": acct_doc.get("lastEmailTs")}}, upsert=True)
+                        logger.info(f"/analyze: synced lastEmailTs for {acct}: {acct_doc.get('lastEmailTs')}")
             except Exception as e:
-                logger.exception(f"Failed to update account lastEmailTs for {acct}: {e}")
+                logger.exception(f"/analyze: failed to sync account lastEmailTs for {acct}: {e}")
 
-        logger.info(f"/analyze: inserted {len(all_inserted)} tasks")
+        logger.info(f"/analyze: inserted/updated {len(all_inserted)} extracted items")
         return JSONResponse({"inserted": len(all_inserted)}, status_code=200)
 
     except Exception as e:
