@@ -15,6 +15,7 @@ app = FastAPI()
 
 # configure logging
 logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # allow both local dev and production origins
 app.add_middleware(
@@ -42,39 +43,48 @@ async def start_auth(request: Request):
     try:
         data = await request.json()
         email = data.get("email")
-        logging.info(f"📩 /start_auth called with: {email}")
+        logger.info(f"📩 /start_auth called with: {email}")
 
         if not email:
-            logging.error("❌ Missing email in request")
+            logger.error("❌ Missing email in request")
             return JSONResponse({"error": "email required"}, status_code=400)
 
         auth_url, state = model_utils.generate_authorization_url(email)
-        logging.info(f"✅ Generated auth URL for {email}")
+        logger.info(f"✅ Generated auth URL for {email}: {auth_url}")
 
         return JSONResponse({"auth_url": auth_url, "state": state}, status_code=200)
 
     except Exception as e:
-        logging.exception("🔥 Error in /start_auth")
+        logger.exception("🔥 Error in /start_auth")
         return JSONResponse({"error": str(e)}, status_code=500)
 
 
 @app.get("/oauth2callback")
 def oauth2callback(code: str = Query(None), state: str = Query(None)):
+    """
+    OAuth redirect URI: google will redirect here with code & state.
+    We exchange the code for tokens and save them for the mapped email.
+    After successful exchange we redirect users to the frontend (or show success page).
+    """
     if not code or not state:
         return HTMLResponse("<h1>Missing code/state</h1>", status_code=400)
     try:
         email = model_utils.exchange_code_for_token(state, code)
-        frontend = os.getenv("FRONTEND_URL", "https://gmail-ai-analyzer.vercel.app")
+        frontend = os.getenv("FRONTEND_URL", "https://gmail-ai-analyzer.vercel.app").rstrip("/")
         redirect_to = f"{frontend}/?auth=success&email={email}"
-        logging.info(f"✅ OAuth success for {email}, redirecting to {redirect_to}")
+        logger.info(f"✅ OAuth success for {email}, redirecting to {redirect_to}")
         return RedirectResponse(redirect_to)
     except Exception as e:
-        logging.exception("🔥 OAuth callback failed")
+        logger.exception("🔥 OAuth callback failed")
         return HTMLResponse(f"<h1>Auth failed: {e}</h1>", status_code=500)
 
 
 @app.post("/analyze")
 async def analyze(request: Request):
+    """
+    POST body: { "emails": ["a@x.com","b@y.com"] }
+    Uses saved tokens to fetch Gmail, extract tasks, and persist them to Mongo.
+    """
     try:
         payload = await request.json()
         emails = payload.get("emails", [])
@@ -85,59 +95,109 @@ async def analyze(request: Request):
         return JSONResponse({"error": "emails list required"}, status_code=400)
 
     try:
+        # 1) ask model_utils to fetch for the given accounts (returns missing_auth if any)
         result = model_utils.fetch_for_emails(emails, max_results=20)
         missing = result.get("missing_auth", [])
         if missing:
+            logger.info(f"/analyze: missing auth for {missing}")
             return JSONResponse({"missing_auth": missing}, status_code=200)
 
-        from ai_utils import extract_tasks_from_emails
+        # 2) Try to import the AI extraction function; if not present, fallback to simple converter
+        extract_fn = None
+        try:
+            extract_fn = getattr(ai_utils, "extract_tasks_from_emails")
+            logger.info("Using ai_utils.extract_tasks_from_emails")
+        except Exception:
+            logger.warning("ai_utils.extract_tasks_from_emails not found — falling back to simple conversion")
+
+        # 3) Connect to Mongo for persistence (use MONGO_URI env var)
         from pymongo import MongoClient
         from bson import ObjectId
 
-        client = MongoClient(os.getenv("MONGOD_URI", "mongodb://localhost:27017"))
-        db = client["gmail_ai"]
-        tasks_col = db["extractedtasks"]
-        accounts_col = db["extractedaccounts"]
+        mongo_uri = os.getenv("MONGO_URI", "mongodb://localhost:27017")
+        try:
+            client = MongoClient(mongo_uri, serverSelectionTimeoutMS=5000)
+            client.admin.command("ping")
+            db = client["gmail_ai"]
+            tasks_col = db["extractedtasks"]
+            accounts_col = db["extractedaccounts"]
+            logger.info(f"Connected to MongoDB at {mongo_uri}")
+        except Exception as e:
+            logger.exception(f"Could not connect to Mongo for /analyze: {e}")
+            # fail early, because we can't persist results reliably
+            return JSONResponse({"error": "MongoDB connection failed"}, status_code=500)
 
         all_inserted = []
 
-        for acct, emails in result["emails_by_account"].items():
-            tasks = extract_tasks_from_emails(emails, acct)
+        # iterate over accounts -> emails
+        for acct, account_emails in result["emails_by_account"].items():
+            if not account_emails:
+                continue
+
+            # call AI extraction (or fallback)
+            try:
+                if extract_fn:
+                    tasks = extract_fn(account_emails, acct)
+                else:
+                    # fallback: make simple tasks from email subjects
+                    tasks = []
+                    for em in account_emails:
+                        title = em.get("subject", "(no subject)")
+                        snippet = (em.get("content") or "")[:400]
+                        tasks.append({
+                            "title": title,
+                            "description": snippet,
+                            "source_subject": em.get("subject"),
+                            "source_from": em.get("from"),
+                            "source_email_ts": em.get("date"),
+                            "confidence": 1.0,
+                        })
+            except Exception as e:
+                logger.exception(f"AI extraction failed for account {acct}: {e}")
+                continue
+
             if not tasks:
                 continue
 
+            # upsert each task (use source_email_ts + account as de-dup key)
             for t in tasks:
                 t["_source_account"] = acct
+                # make a Mongo ObjectId string if not present
                 t.setdefault("_id", str(ObjectId()))
-                tasks_col.update_one(
-                    {"_source_account": acct, "source_email_ts": t.get("source_email_ts")},
-                    {"$set": t},
-                    upsert=True
-                )
-                all_inserted.append(t)
+                key = {"_source_account": acct, "source_email_ts": t.get("source_email_ts")}
+                try:
+                    tasks_col.update_one(key, {"$set": t}, upsert=True)
+                    all_inserted.append(t)
+                except Exception as e:
+                    logger.exception(f"Failed to upsert task for {acct}: {e}")
 
-            if emails:
-                last_ts = max(e["date"] for e in emails)
-                accounts_col.update_one(
-                    {"email": acct},
-                    {"$set": {"lastEmailTs": last_ts}},
-                    upsert=True
-                )
+            # update lastEmailTs for account (persist where possible)
+            try:
+                last_ts = max(e.get("date") for e in account_emails)
+                accounts_col.update_one({"email": acct}, {"$set": {"lastEmailTs": last_ts}}, upsert=True)
+            except Exception as e:
+                logger.exception(f"Failed to update account lastEmailTs for {acct}: {e}")
 
+        logger.info(f"/analyze: inserted {len(all_inserted)} tasks")
         return JSONResponse({"inserted": len(all_inserted)}, status_code=200)
 
     except Exception as e:
-        logging.exception("🔥 ERROR in /analyze")
+        logger.exception("🔥 ERROR in /analyze")
         return JSONResponse({"error": str(e)}, status_code=500)
 
 
 @app.get("/email_state")
 def get_email_state():
+    """
+    Return the most recent extracted email tasks/events,
+    if email_state.json exists. Kept for backwards compatibility.
+    """
     if not os.path.exists(EMAIL_STATE_FILE):
         return JSONResponse(
             content={"error": "No email_state.json found. Run /analyze first."},
             status_code=404,
         )
+
     try:
         with open(EMAIL_STATE_FILE, "r", encoding="utf-8") as f:
             data = json.load(f)
@@ -151,6 +211,10 @@ def get_email_state():
 
 @app.patch("/email_state")
 async def patch_email_state(request: Request):
+    """
+    Body example: { "id": "<item_id>", "addedToCalendar": true }
+    Updates the in-file object only (no DB).
+    """
     try:
         body = await request.json()
         item_id = body.get("id")
