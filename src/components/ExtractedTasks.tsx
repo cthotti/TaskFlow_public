@@ -36,10 +36,10 @@ export default function ExtractedTasks() {
   const [authQueue, setAuthQueue] = useState<string[]>([]);
   const [authInProgress, setAuthInProgress] = useState<string | null>(null);
 
-  // per-task loading states keyed by task._id
+  // per-task loading states keyed by actual Mongo _id
   const [taskLoading, setTaskLoading] = useState<Record<string, boolean>>({});
 
-  // ---- Fetch Tasks ----
+  // Fetch Tasks
   const fetchTasks = async () => {
     try {
       const res = await fetch(TASKS_API);
@@ -50,7 +50,7 @@ export default function ExtractedTasks() {
     }
   };
 
-  // ---- Fetch Accounts ----
+  // Fetch Accounts
   const fetchAccounts = async () => {
     try {
       const res = await fetch(ACCOUNTS_API);
@@ -61,9 +61,13 @@ export default function ExtractedTasks() {
     }
   };
 
-  // ---- Delete Task ----
-  const deleteTask = async (id: string) => {
-    if (!id) return;
+  // Delete Task (requires real _id)
+  const deleteTask = async (id?: string) => {
+    if (!id) {
+      console.warn("deleteTask called without a real _id — ignoring.");
+      alert("Cannot delete: missing task id.");
+      return;
+    }
     setTaskLoading((s) => ({ ...s, [id]: true }));
     try {
       const res = await fetch(`${TASKS_API}?id=${encodeURIComponent(id)}`, { method: "DELETE" });
@@ -71,33 +75,32 @@ export default function ExtractedTasks() {
         const txt = await res.text().catch(() => "no response body");
         throw new Error(`Delete failed: ${res.status} ${txt}`);
       }
-      // optimistically remove from UI
+      // remove from UI
       setTasks((prev) => prev.filter((t) => t._id !== id));
-    } catch (e) {
-      console.error("deleteTask failed", e);
+    } catch (err) {
+      console.error("deleteTask failed", err);
       alert("Failed to delete task. See console for details.");
     } finally {
       setTaskLoading((s) => ({ ...s, [id]: false }));
     }
   };
 
-  // ---- Add to Calendar ----
+  // Add to Calendar (requires real _id)
   const addToCalendar = async (task: ExtractedTask) => {
     const id = task._id;
     if (!id) {
-      console.warn("task has no _id, skipping add");
+      console.warn("task._id missing, cannot add to calendar");
+      alert("Cannot add to calendar: missing task id.");
       return;
     }
     setTaskLoading((s) => ({ ...s, [id]: true }));
 
     try {
-      // Build payload for calendar API. Use the backend-provided date/time.
       const payload: any = {
         text: task.title,
         description: task.description,
         date: task.date || null,
         due: task.time || null,
-        // include source metadata so backend can attach it to the created calendar item if desired
         metadata: { source_account: task._source_account, source_email_ts: task.source_email_ts },
       };
 
@@ -112,10 +115,7 @@ export default function ExtractedTasks() {
         throw new Error(`Calendar create failed: ${res.status} ${text}`);
       }
 
-      // Optionally read the created event from the API response (if provided)
-      const created = await res.json().catch(() => null);
-
-      // Mark the extracted task as addedToCalendar in our DB via tasks API
+      // mark extracted task as added
       const patchRes = await fetch(TASKS_API, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -125,29 +125,23 @@ export default function ExtractedTasks() {
       if (!patchRes.ok) {
         const text = await patchRes.text().catch(() => "");
         console.warn("Failed to mark task as added on server:", patchRes.status, text);
-        // still update UI to reflect calendar add, but inform user
-        alert("Event created but failed to update local task state.");
+        alert("Event created but failed to update task state. Check logs.");
       } else {
-        // Update local UI state for that task
-        setTasks((prev) =>
-          prev.map((t) => (t._id === id ? { ...t, addedToCalendar: true } : t))
-        );
+        setTasks((prev) => prev.map((t) => (t._id === id ? { ...t, addedToCalendar: true } : t)));
       }
 
-      // refresh accounts/tasks to sync lastEmailTs if needed
+      // refresh accounts/tasks
       await fetchAccounts();
       await fetchTasks();
-
-      console.info("Event created on calendar", created);
-    } catch (e) {
-      console.error("addToCalendar failed", e);
+    } catch (err) {
+      console.error("addToCalendar failed", err);
       alert("Failed to add to calendar. See console for details.");
     } finally {
       setTaskLoading((s) => ({ ...s, [id]: false }));
     }
   };
 
-  // ---- Analyze via FastAPI ----
+  // Analyze via FastAPI
   const analyzeViaFastAPI = async (emails: string[]) => {
     setAnalyzeLoading(true);
     setMissingAuth([]);
@@ -171,7 +165,7 @@ export default function ExtractedTasks() {
     }
   };
 
-  // ---- Request Auth ----
+  // Request Auth
   const requestAuthFor = async (email: string) => {
     try {
       const res = await fetch(`${FASTAPI_BASE}/start_auth`, {
@@ -182,7 +176,6 @@ export default function ExtractedTasks() {
       const data = await res.json();
       if (data?.auth_url) {
         setAuthInProgress(email);
-        // redirect the user to Google's OAuth screen
         window.location.href = data.auth_url;
       } else {
         console.warn("start_auth returned no auth_url", data);
@@ -195,12 +188,11 @@ export default function ExtractedTasks() {
   };
 
   useEffect(() => {
-    // Handle OAuth callback landing here after redirect from FastAPI
+    // Handle OAuth callback
     const url = new URL(window.location.href);
     const auth = url.searchParams.get("auth");
     const email = url.searchParams.get("email");
     if (auth === "success" && email) {
-      // remove query params from URL for cleanliness
       window.history.replaceState({}, document.title, window.location.pathname);
       setAuthInProgress(null);
       setAuthQueue((prev) => {
@@ -210,7 +202,6 @@ export default function ExtractedTasks() {
         }
         return remaining;
       });
-      // refresh accounts/tasks immediately
       fetchAccounts();
       fetchTasks();
     }
@@ -219,15 +210,11 @@ export default function ExtractedTasks() {
     fetchAccounts();
   }, []);
 
-  // ---- Connect: save accounts in DB (Next API), then request auth ----
+  // Connect: save accounts then request auth
   const onConnectClick = async () => {
-    const emails = emailInput
-      .split(",")
-      .map((s) => s.trim())
-      .filter(Boolean);
+    const emails = emailInput.split(",").map((s) => s.trim()).filter(Boolean);
     setAuthQueue(emails);
 
-    // Save each email in Next.js DB first (so accounts show up instantly)
     for (const email of emails) {
       try {
         await fetch(ACCOUNTS_API, {
@@ -241,17 +228,13 @@ export default function ExtractedTasks() {
     }
     await fetchAccounts();
 
-    // Begin auth with first email (if any)
     if (emails.length > 0) {
       await requestAuthFor(emails[0]);
     }
   };
 
   const onAnalyzeClick = async () => {
-    const emails = emailInput
-      .split(",")
-      .map((s) => s.trim())
-      .filter(Boolean);
+    const emails = emailInput.split(",").map((s) => s.trim()).filter(Boolean);
     await analyzeViaFastAPI(emails);
   };
 
@@ -259,7 +242,7 @@ export default function ExtractedTasks() {
     <div className="p-4">
       <h2 className="text-lg font-bold text-white mb-4">Extracted from Gmail</h2>
 
-      {/* Input for emails */}
+      {/* Input */}
       <div className="mb-4">
         <label className="text-sm text-gray-300">Emails (comma separated)</label>
         <input
@@ -269,19 +252,13 @@ export default function ExtractedTasks() {
           className="w-full p-2 mt-1 bg-[#0b0b0b] border border-gray-700 rounded text-white"
         />
         <div className="mt-2 flex space-x-2">
-          <button onClick={onConnectClick} className="px-3 py-1 bg-blue-600 rounded">
-            Connect
-          </button>
-          <button onClick={onAnalyzeClick} className="px-3 py-1 bg-green-600 rounded">
-            {analyzeLoading ? "Analyzing..." : "Analyze"}
-          </button>
-          <button onClick={() => { fetchTasks(); fetchAccounts(); }} className="px-3 py-1 bg-gray-600 rounded">
-            Refresh
-          </button>
+          <button onClick={onConnectClick} className="px-3 py-1 bg-blue-600 rounded">Connect</button>
+          <button onClick={onAnalyzeClick} className="px-3 py-1 bg-green-600 rounded">{analyzeLoading ? "Analyzing..." : "Analyze"}</button>
+          <button onClick={() => { fetchTasks(); fetchAccounts(); }} className="px-3 py-1 bg-gray-600 rounded">Refresh</button>
         </div>
       </div>
 
-      {/* Connected Accounts */}
+      {/* Accounts */}
       <div className="mb-6">
         <h3 className="text-md font-semibold text-white mb-2">Connected Accounts</h3>
         {accounts.length === 0 ? (
@@ -308,10 +285,10 @@ export default function ExtractedTasks() {
           <p className="text-gray-400 text-sm">No extracted tasks</p>
         ) : (
           tasks.map((t) => {
-            const id = t._id || `${t._source_account}-${t.source_email_ts}-${t.title}`;
-            const loading = !!taskLoading[id];
+            const realId = t._id ?? undefined; // only real DB id
+            const loading = !!(realId && taskLoading[realId]);
             return (
-              <div key={id} className="bg-[#1e1e1e] border border-gray-600 rounded-md p-3 text-white flex justify-between items-center">
+              <div key={realId ?? `${t._source_account}-${t.source_email_ts}-${t.title}`} className="bg-[#1e1e1e] border border-gray-600 rounded-md p-3 text-white flex justify-between items-center">
                 <div>
                   <p className="font-medium">{t.title}</p>
                   {t.description && <p className="text-xs text-gray-400">{t.description}</p>}
@@ -323,15 +300,17 @@ export default function ExtractedTasks() {
                     <button
                       onClick={() => addToCalendar(t)}
                       className="px-2 py-1 bg-green-600 hover:bg-green-500 rounded disabled:opacity-50"
-                      disabled={loading}
+                      disabled={loading || !realId}
+                      title={!realId ? "Task not yet saved to DB" : undefined}
                     >
                       {loading ? "Adding..." : "Add"}
                     </button>
                   )}
                   <button
-                    onClick={() => deleteTask(id)}
+                    onClick={() => deleteTask(realId)}
                     className="px-2 py-1 bg-red-600 hover:bg-red-500 rounded disabled:opacity-50"
-                    disabled={loading}
+                    disabled={loading || !realId}
+                    title={!realId ? "Task not yet saved to DB" : undefined}
                   >
                     {loading ? "…" : "×"}
                   </button>

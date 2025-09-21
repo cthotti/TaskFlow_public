@@ -22,7 +22,7 @@ SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
 BLOCKED_SENDERS = ["nytimes.com", "substack.com", "noreply@ucsd.edu", "bankofamerica.com"]
 
 # Environment variables (use MONGO_URI consistently)
-MONGO_URI = os.getenv("MONGO_URI", os.getenv("MONGOD_URI", "mongodb://localhost:27017"))
+MONGO_URI = os.getenv("MONGO_URI", os.getenv("MONGO_URI", "mongodb://localhost:27017"))
 CLIENT_SECRETS_FILE = os.getenv("CLIENT_SECRETS_FILE", "credentials.json")
 BACKEND_BASE = os.getenv("BACKEND_URL", "http://localhost:8000").rstrip("/")
 FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:3000").rstrip("/")
