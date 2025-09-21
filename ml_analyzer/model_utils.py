@@ -14,13 +14,13 @@ SCOPES = ['https://www.googleapis.com/auth/gmail.readonly']
 BLOCKED_SENDERS = ["nytimes.com", "substack.com", "noreply@ucsd.edu", "bankofamerica.com"]
 
 # Env vars
-MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017")
+MONGOD_URI = os.getenv("MONGOD_URI", "mongodb://localhost:27017")
 CLIENT_SECRETS_FILE = os.getenv("CLIENT_SECRETS_FILE", "credentials.json")
 BACKEND_BASE = os.getenv("BACKEND_URL", "https://gmail-ai-analyzer.onrender.com")
 FRONTEND_URL = os.getenv("FRONTEND_URL", "https://gmail-ai-analyzer.vercel.app")
 
 # DB setup
-client = MongoClient(MONGO_URI)
+client = MongoClient(MONGOD_URI)
 db = client["gmail_ai"]
 tokens_col = db["tokens"]        # { email, creds_json }
 state_col = db["states"]         # { email, last_ts }
