@@ -94,7 +94,7 @@ async def analyze(request: Request):
         from pymongo import MongoClient
         from bson import ObjectId
 
-        client = MongoClient(os.getenv("MONGO_URI", "mongodb://localhost:27017"))
+        client = MongoClient(os.getenv("MONGOD_URI", "mongodb://localhost:27017"))
         db = client["gmail_ai"]
         tasks_col = db["extractedtasks"]
         accounts_col = db["extractedaccounts"]
