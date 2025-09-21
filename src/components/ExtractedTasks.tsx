@@ -20,6 +20,7 @@ type ExtractedAccount = {
   _id?: string;
   email: string;
   lastEmailTs?: string | null;
+  authenticated?: boolean;
 };
 
 const TASKS_API = "/api/extracted";
@@ -118,9 +119,12 @@ export default function ExtractedTasks() {
         body: JSON.stringify({ email }),
       });
       const data = await res.json();
-      if (data.auth_url) {
+      if (data?.auth_url) {
         setAuthInProgress(email);
+        // redirect the user to Google's OAuth screen
         window.location.href = data.auth_url;
+      } else {
+        console.warn("start_auth returned no auth_url", data);
       }
     } catch (e) {
       console.error("start_auth failed", e);
@@ -128,46 +132,63 @@ export default function ExtractedTasks() {
   };
 
   useEffect(() => {
-    // Handle OAuth callback
+    // Handle OAuth callback landing here after redirect from FastAPI
     const url = new URL(window.location.href);
     const auth = url.searchParams.get("auth");
     const email = url.searchParams.get("email");
     if (auth === "success" && email) {
-      window.history.replaceState({}, document.title, "/");
+      // remove query params from URL for cleanliness
+      window.history.replaceState({}, document.title, window.location.pathname);
       setAuthInProgress(null);
       setAuthQueue((prev) => {
         const remaining = prev.filter((e) => e !== email);
-        if (remaining.length > 0) requestAuthFor(remaining[0]);
+        if (remaining.length > 0) {
+          requestAuthFor(remaining[0]);
+        }
         return remaining;
       });
+      // refresh accounts/tasks immediately
       fetchAccounts();
+      fetchTasks();
     }
 
     fetchTasks();
     fetchAccounts();
   }, []);
 
-  // ---- Connect: save accounts in DB, then request auth ----
+  // ---- Connect: save accounts in DB (Next API), then request auth ----
   const onConnectClick = async () => {
-    const emails = emailInput.split(",").map((s) => s.trim()).filter(Boolean);
+    const emails = emailInput
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
     setAuthQueue(emails);
 
-    // Save each email in Mongo first
+    // Save each email in Next.js DB first (so accounts show up instantly)
     for (const email of emails) {
-      await fetch(ACCOUNTS_API, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email }),
-      });
+      try {
+        await fetch(ACCOUNTS_API, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email }),
+        });
+      } catch (e) {
+        console.error("failed to save account via Next API", e);
+      }
     }
     await fetchAccounts();
 
-    // Begin auth with first email
-    if (emails.length > 0) await requestAuthFor(emails[0]);
+    // Begin auth with first email (if any)
+    if (emails.length > 0) {
+      await requestAuthFor(emails[0]);
+    }
   };
 
   const onAnalyzeClick = async () => {
-    const emails = emailInput.split(",").map((s) => s.trim()).filter(Boolean);
+    const emails = emailInput
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
     await analyzeViaFastAPI(emails);
   };
 
@@ -191,7 +212,7 @@ export default function ExtractedTasks() {
           <button onClick={onAnalyzeClick} className="px-3 py-1 bg-green-600 rounded">
             {analyzeLoading ? "Analyzing..." : "Analyze"}
           </button>
-          <button onClick={() => {fetchTasks(); fetchAccounts();}} className="px-3 py-1 bg-gray-600 rounded">
+          <button onClick={() => { fetchTasks(); fetchAccounts(); }} className="px-3 py-1 bg-gray-600 rounded">
             Refresh
           </button>
         </div>
@@ -206,8 +227,11 @@ export default function ExtractedTasks() {
           <ul className="space-y-2">
             {accounts.map((acc) => (
               <li key={acc._id} className="bg-[#1e1e1e] border border-gray-600 rounded-md p-2 text-white flex justify-between">
-                <span>{acc.email}</span>
-                <span className="text-xs text-gray-400">Last sync: {acc.lastEmailTs || "never"}</span>
+                <div>
+                  <div>{acc.email}</div>
+                  <div className="text-xs text-gray-400">{acc.authenticated ? "connected" : "not connected"}</div>
+                </div>
+                <div className="text-xs text-gray-400">Last sync: {acc.lastEmailTs || "never"}</div>
               </li>
             ))}
           </ul>
