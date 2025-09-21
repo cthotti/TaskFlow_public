@@ -7,16 +7,15 @@ import json
 import os
 import logging
 
-import ai_utils
-import model_utils
+import model_utils  # safe to import; model_utils handles DB connectivity errors gracefully
 
 app = FastAPI()
 
 # configure logging
 logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("app")
+logger = logging.getLogger(__name__)
 
-# allow dev and prod origins (adjust if you host elsewhere)
+# allow both local dev and production origins
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -30,85 +29,85 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Local file for backward compatibility (not used by DB flow)
 EMAIL_STATE_FILE = os.path.join(os.path.dirname(__file__), "email_state.json")
 
 
 @app.post("/start_auth")
 async def start_auth(request: Request):
     """
-    Expects JSON: { "email": "user@example.com" }
-    Returns: { "auth_url": ..., "state": ... } or error
+    Request body JSON: { "email": "user@example.com" }
+    Returns: { "auth_url": "...", "state": "..." }
     """
     try:
-        payload = await request.json()
-    except Exception:
-        return JSONResponse({"error": "invalid json"}, status_code=400)
+        data = await request.json()
+        email = data.get("email")
+        logger.info(f"📩 /start_auth called with: {email}")
 
-    email = payload.get("email")
-    logger.info(f"/start_auth called with email={email}")
-    if not email:
-        return JSONResponse({"error": "email required"}, status_code=400)
+        if not email:
+            logger.error("❌ Missing email in request")
+            return JSONResponse({"error": "email required"}, status_code=400)
 
-    try:
         auth_url, state = model_utils.generate_authorization_url(email)
-        logger.info(f"Generated auth URL for {email}")
+        logger.info(f"✅ Generated auth URL for {email}: {auth_url}")
         return JSONResponse({"auth_url": auth_url, "state": state}, status_code=200)
+
     except Exception as e:
-        logger.exception("Error generating authorization URL")
+        logger.exception("🔥 Error in /start_auth")
         return JSONResponse({"error": str(e)}, status_code=500)
 
 
 @app.get("/oauth2callback")
 def oauth2callback(code: str = Query(None), state: str = Query(None)):
     """
-    Google redirects to this endpoint with code & state.
-    Exchange code for token and redirect back to frontend.
+    OAuth redirect URI
     """
     if not code or not state:
         return HTMLResponse("<h1>Missing code/state</h1>", status_code=400)
     try:
         email = model_utils.exchange_code_for_token(state, code)
-        frontend = os.getenv("FRONTEND_URL", "http://localhost:3000").rstrip("/")
+        frontend = os.getenv("FRONTEND_URL", "https://gmail-ai-analyzer.vercel.app").rstrip("/")
         redirect_to = f"{frontend}/?auth=success&email={email}"
-        logger.info(f"OAuth success for {email}; redirecting to {redirect_to}")
+        logger.info(f"✅ OAuth success for {email}, redirecting to {redirect_to}")
         return RedirectResponse(redirect_to)
     except Exception as e:
-        logger.exception("OAuth callback failed")
+        logger.exception("🔥 OAuth callback failed")
         return HTMLResponse(f"<h1>Auth failed: {e}</h1>", status_code=500)
 
 
 @app.post("/analyze")
 async def analyze(request: Request):
     """
-    POST { "emails": [...] }
-    Uses saved tokens to fetch messages, extract tasks, and save to Mongo.
+    POST body: { "emails": ["a@x.com","b@y.com"] }
+    Uses saved tokens to fetch Gmail, extract tasks, and persist them to Mongo.
     """
     try:
         payload = await request.json()
+        emails = payload.get("emails", [])
     except Exception:
         return JSONResponse({"error": "invalid json"}, status_code=400)
 
-    emails = payload.get("emails", [])
-    if not isinstance(emails, list) or not emails:
+    if not emails or not isinstance(emails, list):
         return JSONResponse({"error": "emails list required"}, status_code=400)
 
     try:
-        # 1) Fetch emails; model_utils will return missing_auth if any tokens are missing
+        # import ai_utils lazily to avoid circular import at module import time
+        import ai_utils
+
+        # 1) fetch emails via model_utils (may return missing_auth list)
         result = model_utils.fetch_for_emails(emails, max_results=20)
         missing = result.get("missing_auth", [])
         if missing:
             logger.info(f"/analyze: missing auth for {missing}")
             return JSONResponse({"missing_auth": missing}, status_code=200)
 
-        # 2) Load extraction function (if present)
-        extract_fn = None
-        try:
-            extract_fn = getattr(ai_utils, "extract_tasks_from_emails")
-        except Exception:
-            logger.warning("ai_utils.extract_tasks_from_emails not found — using fallback converter")
+        # 2) determine extraction function
+        extract_fn = getattr(ai_utils, "extract_tasks_from_emails", None)
+        if extract_fn:
+            logger.info("Using ai_utils.extract_tasks_from_emails")
+        else:
+            logger.warning("ai_utils.extract_tasks_from_emails not found — falling back to simple conversion")
 
-        # 3) persist tasks to Mongo (same collection names that Next.js expects)
+        # 3) connect to Mongo (use MONGO_URI env)
         from pymongo import MongoClient
         from bson import ObjectId
 
@@ -117,41 +116,44 @@ async def analyze(request: Request):
             client = MongoClient(mongo_uri, serverSelectionTimeoutMS=5000)
             client.admin.command("ping")
             db = client["gmail_ai"]
-            tasks_col = db["extractedtasks"]   # Next.js Mongoose model uses 'extractedtasks'
+            tasks_col = db["extractedtasks"]
             accounts_col = db["extractedaccounts"]
             logger.info(f"Connected to MongoDB at {mongo_uri}")
         except Exception as e:
-            logger.exception("Could not connect to Mongo for /analyze")
+            logger.exception(f"Could not connect to Mongo for /analyze: {e}")
             return JSONResponse({"error": "MongoDB connection failed"}, status_code=500)
 
         all_inserted = []
+
         for acct, account_emails in result["emails_by_account"].items():
             if not account_emails:
                 continue
 
-            # extract tasks
             try:
                 if extract_fn:
                     tasks = extract_fn(account_emails, acct)
                 else:
+                    # fallback: create simple tasks from subjects
                     tasks = []
                     for em in account_emails:
+                        title = em.get("subject", "(no subject)")
+                        snippet = (em.get("content") or "")[:400]
                         tasks.append({
-                            "title": em.get("subject", "(no subject)"),
-                            "description": (em.get("content") or "")[:400],
+                            "title": title,
+                            "description": snippet,
                             "source_subject": em.get("subject"),
                             "source_from": em.get("from"),
                             "source_email_ts": em.get("date"),
                             "confidence": 1.0,
                         })
             except Exception as e:
-                logger.exception(f"AI extraction failed for {acct}")
+                logger.exception(f"AI extraction failed for account {acct}: {e}")
                 continue
 
             if not tasks:
                 continue
 
-            # upsert tasks (use acct + source_email_ts as de-dupe key)
+            # Upsert each task using (_source_account, source_email_ts) as de-dupe key
             for t in tasks:
                 t["_source_account"] = acct
                 t.setdefault("_id", str(ObjectId()))
@@ -162,7 +164,7 @@ async def analyze(request: Request):
                 except Exception as e:
                     logger.exception(f"Failed to upsert task for {acct}: {e}")
 
-            # update account lastEmailTs
+            # Update account lastEmailTs
             try:
                 last_ts = max(e.get("date") for e in account_emails)
                 accounts_col.update_one({"email": acct}, {"$set": {"lastEmailTs": last_ts}}, upsert=True)
@@ -177,90 +179,7 @@ async def analyze(request: Request):
         return JSONResponse({"error": str(e)}, status_code=500)
 
 
-@app.get("/email_state")
-def get_email_state():
-    """
-    Backwards compatibility: read local email_state.json if you still use that.
-    Prefer to read directly from Mongo (Next frontend uses Next API).
-    """
-    if not os.path.exists(EMAIL_STATE_FILE):
-        return JSONResponse({"error": "No email_state.json found. Run /analyze first."}, status_code=404)
-    try:
-        with open(EMAIL_STATE_FILE, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        return JSONResponse(content=data, status_code=200)
-    except Exception as e:
-        return JSONResponse({"error": f"Failed to load email_state.json: {e}"}, status_code=500)
-
-
-@app.patch("/email_state")
-async def patch_email_state(request: Request):
-    """
-    Deprecated file-based endpoint (retained for compatibility).
-    """
-    try:
-        body = await request.json()
-        item_id = body.get("id")
-        if not item_id:
-            return JSONResponse({"error": "id required"}, status_code=400)
-
-        if not os.path.exists(EMAIL_STATE_FILE):
-            return JSONResponse({"error": "no email_state file"}, status_code=404)
-
-        with open(EMAIL_STATE_FILE, "r", encoding="utf-8") as f:
-            data = json.load(f)
-
-        updated = False
-        for account, items in data.items():
-            for it in items:
-                if str(it.get("_id")) == str(item_id):
-                    it["addedToCalendar"] = bool(body.get("addedToCalendar", True))
-                    updated = True
-                    break
-            if updated:
-                break
-
-        if updated:
-            with open(EMAIL_STATE_FILE, "w", encoding="utf-8") as f:
-                json.dump(data, f, ensure_ascii=False, indent=2)
-            return JSONResponse({"ok": True}, status_code=200)
-        else:
-            return JSONResponse({"error": "item not found"}, status_code=404)
-    except Exception as e:
-        return JSONResponse({"error": str(e)}, status_code=500)
-
-
-@app.delete("/email_state")
-def delete_email_state(id: str = Query(None)):
-    if not id:
-        return JSONResponse({"error": "id query param required"}, status_code=400)
-    if not os.path.exists(EMAIL_STATE_FILE):
-        return JSONResponse({"error": "no email_state file"}, status_code=404)
-    try:
-        with open(EMAIL_STATE_FILE, "r", encoding="utf-8") as f:
-            data = json.load(f)
-
-        removed = False
-        for account, items in list(data.items()):
-            new_items = [it for it in items if str(it.get("_id")) != str(id)]
-            if len(new_items) != len(items):
-                data[account] = new_items
-                removed = True
-
-        if removed:
-            with open(EMAIL_STATE_FILE, "w", encoding="utf-8") as f:
-                json.dump(data, f, ensure_ascii=False, indent=2)
-            return JSONResponse({"ok": True}, status_code=200)
-        else:
-            return JSONResponse({"error": "id not found"}, status_code=404)
-    except Exception as e:
-        return JSONResponse({"error": str(e)}, status_code=500)
-
-
 @app.get("/date")
 def get_current_date():
     now = datetime.now()
-    return {
-        "date": now.strftime("%A, %B %d, %Y"),
-        "time": now.strftime("%I:%M %p"),
-    }
+    return {"date": now.strftime("%A, %B %d, %Y"), "time": now.strftime("%I:%M %p")}
