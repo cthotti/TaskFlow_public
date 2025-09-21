@@ -22,7 +22,7 @@ SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
 BLOCKED_SENDERS = ["nytimes.com", "substack.com", "noreply@ucsd.edu", "bankofamerica.com"]
 
 # Environment variables (use MONGO_URI consistently)
-MONGO_URI = os.getenv("MONGO_URI", os.getenv("MONGO_URI", "mongodb://localhost:27017"))
+MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017")
 CLIENT_SECRETS_FILE = os.getenv("CLIENT_SECRETS_FILE", "credentials.json")
 BACKEND_BASE = os.getenv("BACKEND_URL", "http://localhost:8000").rstrip("/")
 FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:3000").rstrip("/")
@@ -40,7 +40,8 @@ accounts_col = None
 try:
     client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
     client.admin.command("ping")
-    db = client["gmail_analyzer"]
+    # use the same DB name you use in the app (gmail-analyzer)
+    db = client["gmail-analyzer"]
     tokens_col = db["tokens"]
     state_col = db["states"]
     oauth_col = db["oauth_states"]

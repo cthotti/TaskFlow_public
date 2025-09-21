@@ -104,6 +104,7 @@ async def analyze(request: Request):
             logger.info("/analyze: ai_utils returned empty result")
             return JSONResponse({"inserted": 0}, status_code=200)
 
+        # If ai_utils returns missing_auth wrapper: forward that to client
         if isinstance(analysis_result, dict) and analysis_result.get("missing_auth"):
             missing = analysis_result.get("missing_auth", [])
             logger.info(f"/analyze: missing auth for accounts: {missing}")
@@ -111,12 +112,13 @@ async def analyze(request: Request):
 
         # analysis_result is expected to be { account_email: [extracted_items...] }
         from pymongo import MongoClient
-        from bson import ObjectId
+        # from bson import ObjectId  # not used for creating string ids anymore
 
         mongo_uri = os.getenv("MONGO_URI", "mongodb://localhost:27017")
         try:
             client = MongoClient(mongo_uri, serverSelectionTimeoutMS=5000)
             client.admin.command("ping")
+            # Use the DB name you specified (gmail-analyzer)
             db = client["gmail-analyzer"]
             tasks_col = db["extractedtasks"]
             accounts_col = db["extractedaccounts"]
@@ -135,16 +137,25 @@ async def analyze(request: Request):
             for item in items:
                 # attach metadata
                 item["_source_account"] = acct
-                # ensure _id
-                item.setdefault("_id", str(ObjectId()))
+
+                # ---- IMPORTANT FIX: DO NOT assign _id manually ----
+                # Removing any _id coming from upstream so Mongo will create a proper ObjectId
+                item.pop("_id", None)
+
                 # Dedup/Upsert key:
                 if item.get("source_email_ts"):
                     key = {"_source_account": acct, "source_email_ts": item.get("source_email_ts")}
                 else:
                     # fallback key using subject/title; this may create duplicates if not unique
                     key = {"_source_account": acct, "title": item.get("title"), "source_subject": item.get("source_subject")}
+
                 try:
-                    tasks_col.update_one(key, {"$set": item}, upsert=True)
+                    # Use $setOnInsert to ensure inserted doc gets a real ObjectId created by Mongo
+                    tasks_col.update_one(
+                        key,
+                        {"$set": item, "$setOnInsert": {"createdAt": datetime.utcnow()}},
+                        upsert=True
+                    )
                     all_inserted.append(item)
                 except Exception as e:
                     logger.exception(f"/analyze: failed to upsert task for {acct} item={item}: {e}")
@@ -152,7 +163,6 @@ async def analyze(request: Request):
             # Try update account lastEmailTs from model_utils state if possible (model_utils updates it on fetch)
             try:
                 # If model_utils updated accounts_col, this will succeed; if not present, no-op.
-                # We attempt a best-effort read of the lastEmailTs from model_utils.accounts_col if available.
                 if getattr(model_utils, "accounts_col", None) is not None:
                     acct_doc = model_utils.accounts_col.find_one({"email": acct})
                     if acct_doc and acct_doc.get("lastEmailTs"):
