@@ -1,10 +1,11 @@
-# model_utils.py
+# model_utils.py (updated)
 from __future__ import print_function
 import os
 import re
 import json
 import base64
 from datetime import datetime, timezone
+from typing import Optional, List, Dict, Any
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import Flow
@@ -36,16 +37,17 @@ tokens_col = None
 state_col = None
 oauth_col = None
 accounts_col = None
+extracted_tasks_col = None
 
 try:
     client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
     client.admin.command("ping")
-    # use the same DB name you use in the app (gmail-analyzer)
     db = client["gmail-analyzer"]
     tokens_col = db["tokens"]
     state_col = db["states"]
     oauth_col = db["oauth_states"]
     accounts_col = db["extractedaccounts"]
+    extracted_tasks_col = db["extractedtasks"]
     logger.info("Connected to MongoDB from model_utils.")
 except Exception as e:
     logger.exception(f"Could not connect to MongoDB at {MONGO_URI}. DB writes will be disabled. Error: {e}")
@@ -55,6 +57,7 @@ except Exception as e:
     state_col = None
     oauth_col = None
     accounts_col = None
+    extracted_tasks_col = None
 
 
 def safe_filename(email: str) -> str:
@@ -107,18 +110,24 @@ def ensure_creds(email: str, force_reauth: bool = False):
     return creds
 
 
-def generate_authorization_url(email: str):
+def generate_authorization_url(email: str, owner: Optional[str] = None):
     """
     Start OAuth flow: ensure account doc exists (best-effort), create authorization URL
-    and persist state->email mapping (best-effort).
+    and persist state->email mapping (best-effort). Optionally associate with owner.
     """
     redirect_uri = f"{BACKEND_BASE}/oauth2callback"
 
     # Ensure accounts collection has the email (best-effort)
     if accounts_col is not None:
         try:
-            accounts_col.update_one({"email": email}, {"$setOnInsert": {"lastEmailTs": None}}, upsert=True)
-            logger.info(f"generate_authorization_url: ensured account record for {email}")
+            update = {"$setOnInsert": {"lastEmailTs": None}}
+            if owner:
+                update = {"$setOnInsert": {"lastEmailTs": None, "owner": owner}}
+            query = {"email": email}
+            if owner:
+                query["owner"] = owner
+            accounts_col.update_one(query, update, upsert=True)
+            logger.info(f"generate_authorization_url: ensured account record for {email} owner={owner}")
         except Exception as e:
             logger.exception(f"generate_authorization_url: failed to upsert account {email}: {e}")
     else:
@@ -128,11 +137,14 @@ def generate_authorization_url(email: str):
     flow = Flow.from_client_secrets_file(CLIENT_SECRETS_FILE, scopes=SCOPES, redirect_uri=redirect_uri)
     auth_url, state = flow.authorization_url(access_type="offline", include_granted_scopes="true", prompt="consent", login_hint=email)
 
-    # Save oauth state -> email mapping (best-effort)
+    # Save oauth state -> email mapping (best-effort) and owner
     if oauth_col is not None:
         try:
-            oauth_col.update_one({"state": state}, {"$set": {"email": email, "created_at": datetime.utcnow().isoformat()}}, upsert=True)
-            logger.info(f"generate_authorization_url: saved oauth state for {email} state={state}")
+            rec = {"state": state, "email": email, "created_at": datetime.utcnow().isoformat()}
+            if owner:
+                rec["owner"] = owner
+            oauth_col.update_one({"state": state}, {"$set": rec}, upsert=True)
+            logger.info(f"generate_authorization_url: saved oauth state for {email} state={state} owner={owner}")
         except Exception as e:
             logger.exception(f"generate_authorization_url: failed to save oauth state mapping for {email}: {e}")
     else:
@@ -144,7 +156,7 @@ def generate_authorization_url(email: str):
 def exchange_code_for_token(state: str, code: str):
     """
     Exchange code for token and save token mapped to the email saved in oauth_col.
-    Returns the email that was authorized.
+    Returns a dict {"email":..., "owner":...} (owner may be None).
     """
     if oauth_col is None:
         logger.error("exchange_code_for_token: oauth_col not available - cannot map state")
@@ -156,16 +168,17 @@ def exchange_code_for_token(state: str, code: str):
         raise RuntimeError("Unknown OAuth state")
 
     email = mapping.get("email")
+    owner = mapping.get("owner")  # may be None
     redirect_uri = f"{BACKEND_BASE}/oauth2callback"
     flow = Flow.from_client_secrets_file(CLIENT_SECRETS_FILE, scopes=SCOPES, state=state, redirect_uri=redirect_uri)
     flow.fetch_token(code=code)
     creds = flow.credentials
 
-    # Save token (best-effort)
+    # Save token (best-effort) and include owner if known
     if tokens_col is not None:
         try:
-            tokens_col.update_one({"email": email}, {"$set": {"creds_json": json.loads(creds.to_json())}}, upsert=True)
-            logger.info(f"exchange_code_for_token: saved token for {email}")
+            tokens_col.update_one({"email": email}, {"$set": {"creds_json": json.loads(creds.to_json()), "owner": owner}}, upsert=True)
+            logger.info(f"exchange_code_for_token: saved token for {email} owner={owner}")
         except Exception as e:
             logger.exception(f"exchange_code_for_token: failed to save token for {email}: {e}")
     else:
@@ -177,15 +190,45 @@ def exchange_code_for_token(state: str, code: str):
     except Exception as e:
         logger.exception(f"exchange_code_for_token: failed to delete oauth state {state}: {e}")
 
-    # Ensure account doc exists
+    # Ensure account doc exists (associate owner if present)
     if accounts_col is not None:
         try:
-            accounts_col.update_one({"email": email}, {"$set": {"lastEmailTs": None}}, upsert=True)
-            logger.info(f"exchange_code_for_token: ensured account for {email}")
+            q = {"email": email}
+            update = {"$set": {"lastEmailTs": None}}
+            if owner:
+                q["owner"] = owner
+                update["$set"]["owner"] = owner
+            accounts_col.update_one(q, update, upsert=True)
+            logger.info(f"exchange_code_for_token: ensured account for {email} owner={owner}")
         except Exception as e:
             logger.exception(f"exchange_code_for_token: failed to upsert account for {email}: {e}")
 
-    return email
+    return {"email": email, "owner": owner}
+
+
+def save_extracted_task(task: Dict[str, Any], owner: Optional[str] = None):
+    """
+    Persist an extracted task into the extractedtasks collection.
+    If owner is provided, set task['owner'] accordingly.
+    This function is safe if db is unavailable (it will log and skip).
+    """
+    if extracted_tasks_col is None:
+        logger.warning("save_extracted_task: extracted_tasks_col not available; skipping save.")
+        return None
+
+    try:
+        doc = dict(task)
+        if owner:
+            doc["owner"] = owner
+        else:
+            if "owner" not in doc:
+                doc["owner"] = None
+        res = extracted_tasks_col.insert_one(doc)
+        logger.info(f"save_extracted_task: saved task id={res.inserted_id} owner={doc.get('owner')}")
+        return res.inserted_id
+    except Exception as e:
+        logger.exception(f"save_extracted_task: failed to save task for owner={owner}: {e}")
+        return None
 
 
 # ---------- EMAIL FETCHING ----------
@@ -199,20 +242,40 @@ def is_blocked(sender: str) -> bool:
 
 def fetch_latest_emails(service, email, max_results=20):
     """
-    Fetch latest emails from the primary inbox only and return list of email dicts:
-      {subject, from, date, date_header, content}
-    Uses Gmail search: in:inbox category:primary
+    Fetch latest emails. Try "in:inbox category:primary" first (preferred),
+    then fall back to "in:inbox" and finally messages.list with labelIds=['INBOX'].
+    Returns a list of email dicts.
     """
-    # Only fetch the primary category to avoid social/promotions
-    q = "in:inbox category:primary"
+    queries_to_try = [
+        "in:inbox category:primary",
+        "in:inbox",
+        None,  # fallback to labelIds=['INBOX']
+    ]
 
-    try:
-        results = service.users().messages().list(userId=email, q=q, maxResults=max_results).execute()
-    except Exception as e:
-        logger.exception(f"fetch_latest_emails: failed to list messages for {email}: {e}")
+    messages = []
+    for q in queries_to_try:
+        try:
+            if q is not None:
+                results = service.users().messages().list(userId=email, q=q, maxResults=max_results).execute()
+            else:
+                # fallback: use labelIds to fetch INBOX messages (covers accounts without categories)
+                results = service.users().messages().list(userId=email, labelIds=["INBOX"], maxResults=max_results).execute()
+
+            found = results.get("messages", []) or []
+            if found:
+                messages = found
+                logger.debug(f"fetch_latest_emails: using query='{q}' for {email}, found {len(found)} messages")
+                break
+            else:
+                logger.debug(f"fetch_latest_emails: query='{q}' returned 0 messages for {email}")
+        except Exception as e:
+            logger.exception(f"fetch_latest_emails: list failed for {email} q={q}: {e}")
+            # continue to next fallback
+
+    if not messages:
+        logger.info(f"fetch_latest_emails: no messages found for {email} with primary/inbox fallbacks")
         return []
 
-    messages = results.get("messages", []) or []
     emails = []
     for msg in messages:
         try:
@@ -299,10 +362,11 @@ def filter_new_emails(email, emails):
     return new_emails
 
 
-def fetch_for_emails(email_list, max_results=20):
+def fetch_for_emails(email_list: List[str], max_results: int = 20, owner: Optional[str] = None):
     """
     Fetch new emails for each account using stored tokens.
     Returns { "emails_by_account": {...}, "missing_auth": [...] }
+    Associates account/tokens with owner where provided.
     """
     emails_by_account = {}
     missing_auth = []
@@ -318,6 +382,14 @@ def fetch_for_emails(email_list, max_results=20):
             service = build("gmail", "v1", credentials=creds)
             latest = fetch_latest_emails(service, email, max_results=max_results)
             filtered = filter_new_emails(email, latest)
+
+            # Ensure account doc is associated with owner if provided
+            if accounts_col is not None and owner:
+                try:
+                    accounts_col.update_one({"email": email, "owner": owner}, {"$set": {"lastEmailTs": None, "owner": owner}}, upsert=True)
+                except Exception as e:
+                    logger.exception(f"fetch_for_emails: failed to ensure account for {email} owner={owner}: {e}")
+
             emails_by_account[email] = filtered
             logger.info(f"fetch_for_emails: fetched {len(filtered)} new emails for {email}")
         except Exception as e:
@@ -328,7 +400,6 @@ def fetch_for_emails(email_list, max_results=20):
 
 
 if __name__ == "__main__":
-    # quick manual test
     emails = input("Enter emails (comma separated): ").split(",")
     emails = [e.strip() for e in emails if e.strip()]
     print(json.dumps(fetch_for_emails(emails), indent=2))
