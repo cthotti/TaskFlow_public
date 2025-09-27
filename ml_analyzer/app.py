@@ -1,3 +1,4 @@
+
 # app.py
 from fastapi import FastAPI, Request, Query
 from fastapi.responses import JSONResponse, RedirectResponse, HTMLResponse
