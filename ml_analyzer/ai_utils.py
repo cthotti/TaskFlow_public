@@ -12,8 +12,7 @@ import google.generativeai as genai
 # Import your existing model_utils (must be in same package or Python path)
 import model_utils
 
-# Choose model: gemini-1.5-flash is a good free-tier default for extraction
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
 API_KEY = os.getenv("GEMINI_API_KEY", None)
 
 # small safety defaults
