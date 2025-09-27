@@ -35,21 +35,19 @@ EMAIL_STATE_FILE = os.path.join(os.path.dirname(__file__), "email_state.json")
 @app.post("/start_auth")
 async def start_auth(request: Request):
     """
-    Request body JSON: { "email": "user@example.com", "owner": "<optional user id/username>" }
+    Request body JSON: { "email": "user@example.com" }
     Returns: { "auth_url": "...", "state": "..." }
     """
     try:
         data = await request.json()
-        email = (data.get("email") or "").strip()
-        owner = data.get("owner")  # may be None
-        logger.info(f"📩 /start_auth called with: {email} owner={owner}")
+        email = data.get("email")
+        logger.info(f"📩 /start_auth called with: {email}")
 
         if not email:
             logger.error("❌ Missing email in request")
             return JSONResponse({"error": "email required"}, status_code=400)
 
-        # pass owner through to model_utils so oauth mapping / account docs are owner-aware
-        auth_url, state = model_utils.generate_authorization_url(email, owner=owner)
+        auth_url, state = model_utils.generate_authorization_url(email)
         logger.info(f"✅ Generated auth URL for {email}: {auth_url} (state={state})")
         return JSONResponse({"auth_url": auth_url, "state": state}, status_code=200)
 
@@ -66,22 +64,9 @@ def oauth2callback(code: str = Query(None), state: str = Query(None)):
     if not code or not state:
         return HTMLResponse("<h1>Missing code/state</h1>", status_code=400)
     try:
-        # model_utils.exchange_code_for_token now returns a dict {"email": ..., "owner": ...}
-        mapping = model_utils.exchange_code_for_token(state, code)
-        if isinstance(mapping, dict):
-            email = mapping.get("email")
-            owner = mapping.get("owner")
-        else:
-            # backward compat: if it returns email string
-            email = mapping
-            owner = None
-
+        email = model_utils.exchange_code_for_token(state, code)
         frontend = os.getenv("FRONTEND_URL", "http://localhost:3000").rstrip("/")
-        # include owner if present
-        qs = f"?auth=success&email={email}"
-        if owner:
-            qs += f"&owner={owner}"
-        redirect_to = f"{frontend}/{qs}"
+        redirect_to = f"{frontend}/?auth=success&email={email}"
         logger.info(f"✅ OAuth success for {email}, redirecting to {redirect_to}")
         return RedirectResponse(redirect_to)
     except Exception as e:
@@ -92,14 +77,13 @@ def oauth2callback(code: str = Query(None), state: str = Query(None)):
 @app.post("/analyze")
 async def analyze(request: Request):
     """
-    POST body: { "emails": ["a@x.com","b@y.com"], "owner": "<optional user id/username>" }
+    POST body: { "emails": ["a@x.com","b@y.com"] }
     Uses ai_utils to analyze the emails (ai_utils will call model_utils.fetch_for_emails).
-    Persists extracted tasks to Mongo; saved docs will include `owner` when provided.
+    Persists extracted tasks to Mongo.
     """
     try:
         payload = await request.json()
         emails = payload.get("emails", [])
-        owner = payload.get("owner")
     except Exception:
         return JSONResponse({"error": "invalid json"}, status_code=400)
 
@@ -107,15 +91,16 @@ async def analyze(request: Request):
         return JSONResponse({"error": "emails list required"}, status_code=400)
 
     try:
-        # lazy import to avoid circular imports
+        # lazy import to avoid circular imports at module import time
         import ai_utils
 
-        logger.info(f"/analyze: starting AI analysis for {len(emails)} accounts owner={owner}")
-
-        # pass owner into ai_utils so fetch/save paths can be owner-aware
-        analysis_result = ai_utils.analyze_for_emails(emails, owner=owner, save_output=False)
+        # Call ai_utils high-level analysis. This will call model_utils.fetch_for_emails internally.
+        # ai_utils.analyze_for_emails returns either {"missing_auth": [...] } or { acct_email: [items...] }
+        logger.info(f"/analyze: starting AI analysis for {len(emails)} accounts")
+        analysis_result = ai_utils.analyze_for_emails(emails, save_output=False)
 
         if not analysis_result:
+            # empty result (no items) is acceptable
             logger.info("/analyze: ai_utils returned empty result")
             return JSONResponse({"inserted": 0}, status_code=200)
 
@@ -124,8 +109,9 @@ async def analyze(request: Request):
             logger.info(f"/analyze: missing auth for accounts: {missing}")
             return JSONResponse({"missing_auth": missing}, status_code=200)
 
-        # connect to Mongo to persist results
+        # analysis_result is expected to be { account_email: [extracted_items...] }
         from pymongo import MongoClient
+        from bson import ObjectId
 
         mongo_uri = os.getenv("MONGO_URI", "mongodb://localhost:27017")
         try:
@@ -140,49 +126,37 @@ async def analyze(request: Request):
             return JSONResponse({"error": "MongoDB connection failed"}, status_code=500)
 
         all_inserted = []
-        # analysis_result expected: { acct_email: [items...] }
+
+        # Persist extracted items per account
         for acct, items in analysis_result.items():
             if not isinstance(items, list) or len(items) == 0:
                 continue
 
             for item in items:
-                # ensure metadata fields
+                # attach metadata
                 item["_source_account"] = acct
-                if owner:
-                    item["owner"] = owner
-
-                # remove incoming _id so Mongo generates a proper ObjectId
-                item.pop("_id", None)
-
-                # construct dedupe key that includes owner if present to ensure per-user isolation
+                # ensure _id
+                item.setdefault("_id", str(ObjectId()))
+                # Dedup/Upsert key:
                 if item.get("source_email_ts"):
                     key = {"_source_account": acct, "source_email_ts": item.get("source_email_ts")}
                 else:
+                    # fallback key using subject/title; this may create duplicates if not unique
                     key = {"_source_account": acct, "title": item.get("title"), "source_subject": item.get("source_subject")}
-
-                # include owner in dedupe query if present
-                if owner:
-                    key["owner"] = owner
-
                 try:
-                    tasks_col.update_one(
-                        key,
-                        {"$set": item, "$setOnInsert": {"createdAt": datetime.utcnow()}},
-                        upsert=True,
-                    )
+                    tasks_col.update_one(key, {"$set": item}, upsert=True)
                     all_inserted.append(item)
                 except Exception as e:
                     logger.exception(f"/analyze: failed to upsert task for {acct} item={item}: {e}")
 
-            # Sync lastEmailTs from model_utils.accounts_col if available and attach owner
+            # Try update account lastEmailTs from model_utils state if possible (model_utils updates it on fetch)
             try:
+                # If model_utils updated accounts_col, this will succeed; if not present, no-op.
+                # We attempt a best-effort read of the lastEmailTs from model_utils.accounts_col if available.
                 if getattr(model_utils, "accounts_col", None) is not None:
                     acct_doc = model_utils.accounts_col.find_one({"email": acct})
                     if acct_doc and acct_doc.get("lastEmailTs"):
-                        q = {"email": acct}
-                        if owner:
-                            q["owner"] = owner
-                        accounts_col.update_one(q, {"$set": {"lastEmailTs": acct_doc.get("lastEmailTs"), "owner": owner}}, upsert=True)
+                        accounts_col.update_one({"email": acct}, {"$set": {"lastEmailTs": acct_doc.get("lastEmailTs")}}, upsert=True)
                         logger.info(f"/analyze: synced lastEmailTs for {acct}: {acct_doc.get('lastEmailTs')}")
             except Exception as e:
                 logger.exception(f"/analyze: failed to sync account lastEmailTs for {acct}: {e}")
