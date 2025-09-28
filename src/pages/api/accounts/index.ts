@@ -1,3 +1,4 @@
+
 // pages/api/accounts/index.ts
 import type { NextApiRequest, NextApiResponse } from "next";
 import connectDB from "@/lib/db";

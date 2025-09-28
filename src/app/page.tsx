@@ -6,32 +6,6 @@ import Calendar from "@/components/Calendar";
 import ExtractedTasks from "@/components/ExtractedTasks";
 
 export default function Home() {
-  const [showExtracted, setShowExtracted] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const callBackend = async () => {
-    try {
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/analyze`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({}), // no input required for now
-      });
-
-      if (!res.ok) {
-        const err = await res.json();
-        setError(err.error || "Failed to analyze emails.");
-        return;
-      }
-
-      // ✅ Success: show ExtractedTasks component
-      setShowExtracted(true);
-      setError(null);
-    } catch (err: any) {
-      console.error("Analyze error:", err);
-      setError("Unexpected error running analyzer.");
-    }
-  };
-
   return (
     <div className="flex min-h-screen bg-[#0B0909] text-white">
       {/* Sidebar */}
@@ -49,23 +23,10 @@ export default function Home() {
         {/* Task features */}
         <TodoList />
 
-        {/* Gmail Analyzer Section */}
-        <div className="text-center mt-10">
-          <h2 className="text-2xl mb-4">Gmail Analyzer</h2>
-          <button
-            onClick={callBackend}
-            className="bg-green-600 hover:bg-green-700 px-6 py-2 rounded-lg"
-          >
-            Analyze Emails
-          </button>
-          {error && <p className="mt-4 text-red-400">{error}</p>}
-        </div>
-
         {/* ✅ Extracted Tasks Section */}
         <div className="mt-6">
           <ExtractedTasks />
         </div>
-
 
         {/* Calendar Section */}
         <div className="mt-12">

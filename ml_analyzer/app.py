@@ -112,7 +112,6 @@ async def analyze(request: Request):
 
         # analysis_result is expected to be { account_email: [extracted_items...] }
         from pymongo import MongoClient
-        from bson import ObjectId
 
         mongo_uri = os.getenv("MONGO_URI", "mongodb://localhost:27017")
         try:
@@ -136,8 +135,8 @@ async def analyze(request: Request):
             for item in items:
                 # attach metadata
                 item["_source_account"] = acct
-                # ensure _id
-                item.setdefault("_id", str(ObjectId()))
+                # ensure id
+                item.pop("_id", None)
                 # Dedup/Upsert key:
                 if item.get("source_email_ts"):
                     key = {"_source_account": acct, "source_email_ts": item.get("source_email_ts")}
@@ -145,7 +144,11 @@ async def analyze(request: Request):
                     # fallback key using subject/title; this may create duplicates if not unique
                     key = {"_source_account": acct, "title": item.get("title"), "source_subject": item.get("source_subject")}
                 try:
-                    tasks_col.update_one(key, {"$set": item}, upsert=True)
+                    tasks_col.update_one(
+                        key,
+                        {"$set": item, "$setOnInsert": {"createdAt": datetime.utcnow()}},
+                        upsert=True
+                    )
                     all_inserted.append(item)
                 except Exception as e:
                     logger.exception(f"/analyze: failed to upsert task for {acct} item={item}: {e}")
