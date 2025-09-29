@@ -136,7 +136,7 @@ async def analyze(request: Request):
                 # attach metadata
                 item["_source_account"] = acct
                 # ensure id
-                item.pop("_id", None)
+                item.pop("id", None)
                 # Dedup/Upsert key:
                 if item.get("source_email_ts"):
                     key = {"_source_account": acct, "source_email_ts": item.get("source_email_ts")}

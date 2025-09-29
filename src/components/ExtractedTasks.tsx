@@ -1,10 +1,9 @@
-
 // src/components/ExtractedTasks.tsx
 "use client";
 import { useEffect, useState } from "react";
 
 type ExtractedTask = {
-  _id?: any; // could be ObjectId or string; we'll stringify when needed
+  _id?: any; // could be ObjectId or string or { $oid: ... }
   title: string;
   description?: string;
   date?: string;
@@ -42,8 +41,27 @@ export default function ExtractedTasks() {
 
   // ---- helpers ----
   const stringifyId = (id?: any) => {
+    // handle falsy specially
     if (!id && id !== 0) return undefined;
     try {
+      // common case: id is string
+      if (typeof id === "string") return id;
+      // case: Mongo returns { $oid: "..." }
+      if (typeof id === "object" && id !== null) {
+        if ("$oid" in id && typeof id.$oid === "string") return id.$oid;
+        if ("oid" in id && typeof id.oid === "string") return id.oid;
+        // if it has toString that returns the hex string (ObjectId has this)
+        if (typeof id.toString === "function") {
+          const s = id.toString();
+          if (s && s !== "[object Object]") return s;
+        }
+        // last resort: try JSON
+        try {
+          return JSON.stringify(id);
+        } catch {
+          return String(id);
+        }
+      }
       return String(id);
     } catch {
       return undefined;
@@ -60,7 +78,7 @@ export default function ExtractedTasks() {
         return;
       }
       const data = await res.json();
-      // ensure each task has _id as a string if possible
+      // ensure each task has normalized _id
       const normalized = (data || []).map((t: ExtractedTask) => ({
         ...t,
         _id: stringifyId(t._id),
@@ -100,7 +118,7 @@ export default function ExtractedTasks() {
         const txt = await res.text().catch(() => "no response body");
         throw new Error(`Delete failed: ${res.status} ${txt}`);
       }
-      // optimistic UI update
+      // optimistic UI update: remove from array
       setTasks((prev) => prev.filter((t) => stringifyId(t._id) !== realId));
     } catch (err) {
       console.error("deleteTask failed", err);
@@ -140,7 +158,9 @@ export default function ExtractedTasks() {
         throw new Error(`Calendar create failed: ${res.status} ${text}`);
       }
 
-      // mark extracted task as added
+      const created = await res.json().catch(() => null);
+
+      // mark extracted task as addedToCalendar on server (best-effort)
       const patchRes = await fetch(TASKS_API, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -150,15 +170,36 @@ export default function ExtractedTasks() {
       if (!patchRes.ok) {
         const text = await patchRes.text().catch(() => "");
         console.warn("Failed to mark task as added on server:", patchRes.status, text);
-        alert("Event created but failed to update task state. Check logs.");
+        // If we can't patch, still attempt to delete (user expects it removed), but warn.
       } else {
-        // update local copy
+        // update local UI to show it's added (briefly)
         setTasks((prev) => prev.map((t) => (stringifyId(t._id) === id ? { ...t, addedToCalendar: true } : t)));
       }
 
-      // refresh accounts/tasks (keep UI consistent)
+      // --- NEW: delete the extracted task after creating calendar event ---
+      // Many users prefer to remove the extracted suggestion once it's been added to calendar.
+      // We attempt DELETE; if it fails, we keep the task and inform the user.
+      try {
+        const delRes = await fetch(`${TASKS_API}?id=${encodeURIComponent(id)}`, { method: "DELETE" });
+        if (delRes.ok) {
+          // optimistic removal
+          setTasks((prev) => prev.filter((t) => stringifyId(t._id) !== id));
+        } else {
+          const txt = await delRes.text().catch(() => "");
+          console.warn("Failed to delete after calendar add:", delRes.status, txt);
+          // Inform user but not treat as fatal
+          alert("Event created but failed to remove the extracted task from the list.");
+        }
+      } catch (delErr) {
+        console.error("delete after add failed", delErr);
+        alert("Event created but failed to remove the extracted task from the list.");
+      }
+
+      // refresh accounts/tasks to ensure state is consistent
       await fetchAccounts();
       await fetchTasks();
+
+      console.info("Event created on calendar", created);
     } catch (err) {
       console.error("addToCalendar failed", err);
       alert("Failed to add to calendar. See console for details.");
@@ -181,7 +222,6 @@ export default function ExtractedTasks() {
       if (data && data.missing_auth) {
         setMissingAuth(data.missing_auth || []);
       } else {
-        // important: fetch tasks after analyze so we get persisted docs with _id
         await fetchTasks();
         await fetchAccounts();
       }
@@ -215,7 +255,6 @@ export default function ExtractedTasks() {
   };
 
   useEffect(() => {
-    // Handle OAuth callback
     const url = new URL(window.location.href);
     const auth = url.searchParams.get("auth");
     const email = url.searchParams.get("email");
@@ -233,7 +272,6 @@ export default function ExtractedTasks() {
       fetchTasks();
     }
 
-    // initial load
     fetchTasks();
     fetchAccounts();
   }, []);
@@ -282,7 +320,6 @@ export default function ExtractedTasks() {
         <div className="mt-2 flex space-x-2">
           <button onClick={onConnectClick} className="px-3 py-1 bg-blue-600 rounded">Connect</button>
           <button onClick={onAnalyzeClick} className="px-3 py-1 bg-green-600 rounded">{analyzeLoading ? "Analyzing..." : "Analyze"}</button>
-          <button onClick={() => { fetchTasks(); fetchAccounts(); }} className="px-3 py-1 bg-gray-600 rounded">Refresh</button>
         </div>
       </div>
 
@@ -297,7 +334,7 @@ export default function ExtractedTasks() {
               <li key={acc._id} className="bg-[#1e1e1e] border border-gray-600 rounded-md p-2 text-white flex justify-between">
                 <div>
                   <div>{acc.email}</div>
-                  <div className="text-xs text-gray-400">{acc.authenticated ? "connected" : "not connected"}</div>
+                  <div className="text-xs text-gray-400">{acc.authenticated}</div>
                 </div>
                 <div className="text-xs text-gray-400">Last sync: {acc.lastEmailTs || "never"}</div>
               </li>

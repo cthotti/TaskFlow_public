@@ -96,6 +96,41 @@ export default function NoteEditor({ noteId }: NoteEditorProps) {
     newLine: string
   ) => text.slice(0, lineStart) + newLine + text.slice(lineEnd);
 
+  // ---------- inline replacement helpers ----------
+  const escapeForRegex = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+  /**
+   * Replace short sequences immediately before caret with desired symbols.
+   * Returns { text, caret } updated.
+   */
+  const applyInlineReplacements = (text: string, caret: number) => {
+    if (!text || caret == null) return { text, caret };
+
+    // prefix = everything before caret
+    const prefix = text.slice(0, caret);
+    const suffix = text.slice(caret);
+
+    // ordered replacements (longer sequences first)
+    const replacements: [RegExp, string][] = [
+      [new RegExp(escapeForRegex("-->") + "$"), ARROW_FILLED], // --> => filled arrow
+      [new RegExp(escapeForRegex("<--") + "$"), "←"], // <-- => left arrow
+      [new RegExp(escapeForRegex("->") + "$"), "→"],
+      [new RegExp(escapeForRegex("<-") + "$"), "←"],
+      // you can add more sequences here
+    ];
+
+    for (const [rx, repl] of replacements) {
+      const m = prefix.match(rx);
+      if (m) {
+        const newPrefix = prefix.replace(rx, repl);
+        const newText = newPrefix + suffix;
+        const newCaret = newPrefix.length;
+        return { text: newText, caret: newCaret };
+      }
+    }
+    return { text, caret };
+  };
+
   // ---------- key handling
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (!textareaRef.current || !note) return;
@@ -105,6 +140,28 @@ export default function NoteEditor({ noteId }: NoteEditorProps) {
     const text = note.content;
     const { start: lineStart, end: lineEnd } = lineBounds(text, caret);
     const line = text.slice(lineStart, lineEnd);
+
+    // NEW: if the current line is exactly "/table" and user presses Enter → expand to a markdown table
+    if (e.key === "Enter" && line.trim() === "/table") {
+      e.preventDefault();
+
+      // simple 2-column table template (header + divider + one data row)
+      const tableTemplate = `| Column 1 | Column 2 |\n| --- | --- |\n|  |  |\n`;
+      const updated = replaceCurrentLine(text, lineStart, lineEnd, tableTemplate);
+
+      setNote({ ...note, content: updated });
+
+      requestAnimationFrame(() => {
+        // place caret inside the first data cell (between the pipes)
+        // compute caret pos: start + headerLen + newline + dividerLen + newline + 2 (after "| ")
+        const headerLen = "| Column 1 | Column 2 |".length;
+        const dividerLen = "\n| --- | --- |".length;
+        const dataRowPrefixLen = headerLen + dividerLen + 2; // +2 to land after the pipe+space
+        const newCaretPos = lineStart + dataRowPrefixLen;
+        ta.selectionStart = ta.selectionEnd = newCaretPos;
+      });
+      return;
+    }
 
     // 1) "-" + space at start → start/continue numbered list at indent (Docs-like)
     if (e.key === " " && line.trim() === "-") {
@@ -159,10 +216,6 @@ export default function NoteEditor({ noteId }: NoteEditorProps) {
     }
 
     // 3) Tab → indent & cycle style:
-    //    number➔  --Tab-->   (indent+1)  A➔
-    //    A➔       --Tab-->               a➔
-    //    a➔       --Tab-->               number➝
-    //    number➝  --Tab-->   (outdent-1) number➔
     if (e.key === "Tab" && !e.shiftKey) {
       const m = line.match(markerRe);
       if (m) {
@@ -265,6 +318,28 @@ export default function NoteEditor({ noteId }: NoteEditorProps) {
     }
   };
 
+  // ---------- change handler (handles inline replacements while typing) ----------
+  const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const raw = e.target.value;
+    const caret = e.target.selectionStart ?? raw.length;
+
+    // apply inline replacements near caret
+    const { text: replacedText, caret: newCaret } = applyInlineReplacements(raw, caret);
+
+    // Update note content and restore caret after DOM update
+    setNote((prev) => (prev ? { ...prev, content: replacedText } : prev));
+
+    requestAnimationFrame(() => {
+      const ta = textareaRef.current;
+      if (!ta) return;
+      try {
+        ta.selectionStart = ta.selectionEnd = newCaret;
+      } catch {
+        // ignore if DOM not ready yet
+      }
+    });
+  };
+
   if (!loaded || !note) {
     return (
       <div className="flex min-h-screen bg-[#0B0909] text-white">
@@ -292,7 +367,7 @@ export default function NoteEditor({ noteId }: NoteEditorProps) {
           <textarea
             ref={textareaRef}
             value={note.content}
-            onChange={(e) => setNote({ ...note, content: e.target.value })}
+            onChange={handleChange}
             onKeyDown={handleKeyDown}
             placeholder="Start typing here..."
             className="w-full bg-transparent border-none outline-none text-lg leading-7 text-gray-200 resize-none overflow-hidden"

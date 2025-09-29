@@ -23,15 +23,16 @@ export default function Home() {
         {/* Task features */}
         <TodoList />
 
-        {/* ✅ Extracted Tasks Section */}
-        <div className="mt-6">
-          <ExtractedTasks />
-        </div>
 
         {/* Calendar Section */}
         <div className="mt-12">
           <h2 className="text-2xl text-center mb-6">Calendar</h2>
           <Calendar />
+        </div>
+
+        {/* ✅ Extracted Tasks Section */}
+        <div className="mt-6">
+          <ExtractedTasks />
         </div>
       </div>
     </div>

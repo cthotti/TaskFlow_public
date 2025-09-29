@@ -70,7 +70,6 @@ export default function Sidebar({ beforeNavigate }: SidebarProps) {
       </div>
 
       <div className="mt-6 text-center text-gray-400 text-sm">
-        Task Features
       </div>
     </div>
   );

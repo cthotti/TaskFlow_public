@@ -85,9 +85,18 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
 
   try {
     if (req.method === "GET") {
-      const tasks = await ExtractedTask.find({}).sort({ date: -1, _id: -1 });
+      // Return all tasks (newest first) and normalize _id to string
+      const rawTasks = await ExtractedTask.find({}).sort({ date: -1, _id: -1 });
+      const tasks = rawTasks.map((t) => {
+        const obj = (t as any).toObject ? (t as any).toObject() : t;
+        obj._id = obj._id ? String(obj._id) : obj._id;
+        // ensure addedToCalendar exists
+        if (typeof obj.addedToCalendar === "undefined") obj.addedToCalendar = false;
+        return obj;
+      });
       return res.status(200).json(tasks);
     }
+
 
     if (req.method === "POST") {
       const { title, description, date, time, source_subject, source_from, confidence, _source_account, source_email_ts } = req.body;
