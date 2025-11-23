@@ -22,8 +22,8 @@ app.add_middleware(
     allow_origins=[
         "http://localhost:3000",
         "http://localhost:8000",
-        "https://gmail-ai-analyzer.vercel.app",
-        "https://gmail-ai-analyzer.onrender.com",
+        "https://task-flow-public-nu.vercel.app/",
+        "https://taskflow-public.onrender.com",
     ],
     allow_credentials=True,
     allow_methods=["*"],
