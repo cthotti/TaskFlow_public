@@ -23,7 +23,7 @@ app.add_middleware(
         "http://localhost:3000",
         "http://localhost:8000",
         "https://task-flow-public-nu.vercel.app/",
-        "https://taskflow-public.onrender.com",
+        "https://taskflow-public.onrender.com/",
     ],
     allow_credentials=True,
     allow_methods=["*"],
