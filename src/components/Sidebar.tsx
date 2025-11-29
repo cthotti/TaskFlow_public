@@ -8,7 +8,7 @@ interface Note {
 }
 
 interface SidebarProps {
-  beforeNavigate?: () => Promise<void>; // function passed in from NoteEditor
+  beforeNavigate?: () => Promise<void>; 
 }
 
 export default function Sidebar({ beforeNavigate }: SidebarProps) {
@@ -22,7 +22,7 @@ export default function Sidebar({ beforeNavigate }: SidebarProps) {
   }, []);
 
   const navigate = async (path: string) => {
-    if (beforeNavigate) await beforeNavigate(); // ✅ save first
+    if (beforeNavigate) await beforeNavigate(); 
     router.push(path);
   };
 

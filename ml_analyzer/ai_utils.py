@@ -1,6 +1,3 @@
-
-
-# ai_utils.py  (modified additions included)
 from __future__ import print_function
 import os
 import time
@@ -10,22 +7,19 @@ from typing import List, Dict, Any, Tuple
 
 import google.generativeai as genai
 
-# Import your existing model_utils (must be in same package or Python path)
 import model_utils
 
-# Choose model: gemini-1.5-flash is a good free-tier default for extraction
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
 API_KEY = os.getenv("GEMINI_API_KEY", None)
 
-# small safety defaults
-REQUEST_SLEEP_SECONDS = 1.0  # throttle between requests
+
+REQUEST_SLEEP_SECONDS = 1.0
 MAX_RETRIES = 2
 OUTPUT_FILE = "tasks_extracted.json"
 
 if not API_KEY:
     raise RuntimeError("Please set the GEMINI_API_KEY environment variable before running ai_utils.py")
 
-# configure client
 genai.configure(api_key=API_KEY)
 model = genai.GenerativeModel(GEMINI_MODEL)
 
@@ -36,13 +30,11 @@ def _safe_json_extract(text: str) -> Any:
     Returns parsed JSON or raises ValueError.
     """
     text = text.strip()
-    # quick attempt: if entire text is JSON
     try:
         return json.loads(text)
     except Exception:
         pass
 
-    # find first '[' ... matching ']' (array) or '{' ... matching '}'
     for open_ch, close_ch in (('[', ']'), ('{', '}')):
         start = text.find(open_ch)
         if start == -1:
@@ -58,7 +50,6 @@ def _safe_json_extract(text: str) -> Any:
                     try:
                         return json.loads(candidate)
                     except Exception:
-                        # continue searching (maybe nested garbage)
                         break
     raise ValueError("No valid JSON found in model output")
 
@@ -68,12 +59,9 @@ def _clean_model_response(raw: str) -> str:
     - Remove code fences ``` ``` and leading/trailing backticks
     - Normalize whitespace
     """
-    # remove triple backtick code fences
     cleaned = re.sub(r"```(?:json)?", "", raw, flags=re.IGNORECASE)
     cleaned = cleaned.replace("```", "").strip()
-    # remove single backticks
     cleaned = cleaned.strip("` \n\t")
-    # collapse multiple newlines/spaces
     cleaned = re.sub(r'\r\n', '\n', cleaned)
     cleaned = re.sub(r'\n{2,}', '\n', cleaned)
     return cleaned.strip()
@@ -118,9 +106,7 @@ def analyze_single_email(email_record: Dict[str, Any], retries: int = MAX_RETRIE
     while attempt <= retries:
         attempt += 1
         try:
-            # Use the generative model interface; this returns a response-like object
             resp = model.generate_content(prompt)
-            # resp.text or resp.content may exist depending on client version; convert robustly
             raw_text = ""
             if hasattr(resp, "text"):
                 raw_text = resp.text
@@ -132,35 +118,26 @@ def analyze_single_email(email_record: Dict[str, Any], retries: int = MAX_RETRIE
             cleaned = _clean_model_response(raw_text)
 
             parsed = _safe_json_extract(cleaned)
-            # ensure the parsed result is a list
             if isinstance(parsed, dict):
                 parsed = [parsed]
             if not isinstance(parsed, list):
                 raise ValueError("Model returned JSON not an array")
-            # Add missing metadata fields from email_record to each extracted item if absent
             for item in parsed:
                 item.setdefault("source_subject", subject)
                 item.setdefault("source_from", email_record.get("from", ""))
                 item.setdefault("confidence", item.get("confidence", 0.9))
-                # normalize date/time nulls
                 if item.get("date") is None:
                     item["date"] = None
                 if item.get("time") is None:
                     item["time"] = None
-            # Respect rate limit pause
             time.sleep(REQUEST_SLEEP_SECONDS)
             return parsed
         except Exception as e:
             last_exception = e
             print(f"Warning: model parse attempt {attempt} failed: {e}")
-            # backoff then retry
             time.sleep(REQUEST_SLEEP_SECONDS * attempt)
-    # if we get here, all retries failed
     print("ERROR: Failed to parse model output into JSON. Returning empty list.")
-    # As a fallback, return empty list (could also return raw_text if you want)
     return []
-
-# ---------- New: analyze_for_emails ----------
 
 def analyze_for_emails(email_list, save_output: bool = True) -> dict:
     """
@@ -202,21 +179,17 @@ def analyze_all_from_model_utils(save_output: bool = True) -> Dict[str, List[Dic
       - OR a dict { account_email: [email_dicts...] }
     """
 
-    # 1) run model_utils and get email JSON
     print("Running model_utils to fetch emails (you may be prompted to authenticate)...")
-    fetched = model_utils.main()  # interactive; returns data
+    fetched = model_utils.main()  
 
-    # Normalize to a dict per-account: if list → use fallback key "all_accounts"
     emails_by_account: Dict[str, List[Dict[str, Any]]] = {}
     if isinstance(fetched, dict):
-        # assume structure { account_email: [email_dicts...] }
         emails_by_account = {k: v if isinstance(v, list) else [] for k, v in fetched.items()}
     elif isinstance(fetched, list):
         emails_by_account["all_accounts"] = fetched
     else:
         raise RuntimeError("Unexpected return type from model_utils.main(): " + str(type(fetched)))
 
-    # 2) Analyze each email
     result: Dict[str, List[Dict[str, Any]]] = {}
     for account, emails in emails_by_account.items():
         print(f"\nAnalyzing {len(emails)} emails for account: {account}")
@@ -224,18 +197,15 @@ def analyze_all_from_model_utils(save_output: bool = True) -> Dict[str, List[Dic
         for idx, email_record in enumerate(emails, start=1):
             print(f"  → Analyzing email #{idx}: {email_record.get('subject', '(no subject)')[:80]}")
             extracted = analyze_single_email(email_record)
-            # attach extracted items, optionally include a pointer to the original email
             for item in extracted:
                 item["_source_account"] = account
             result[account].extend(extracted)
 
-    # 3) Save output
     if save_output:
         with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
             json.dump(result, f, ensure_ascii=False, indent=2)
         print(f"\nSaved extracted tasks/events to {OUTPUT_FILE}")
 
-    # 4) Pretty-print to terminal
     for account, items in result.items():
         print(f"\n--- Extracted for {account} ({len(items)} items) ---")
         for it in items:

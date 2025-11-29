@@ -16,7 +16,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     if (req.method === "PATCH") {
       const body = req.body;
 
-      // ✅ Update only provided fields (no overwriting missing ones)
       const updated = await Note.findByIdAndUpdate(
         id,
         { $set: body },

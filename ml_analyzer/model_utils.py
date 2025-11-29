@@ -1,4 +1,3 @@
-# model_utils.py
 from __future__ import print_function
 import os
 import re
@@ -17,13 +16,10 @@ import html
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Gmail scope
 SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
 
-# Senders or domains to ignore
 BLOCKED_SENDERS = ["nytimes.com", "substack.com", "noreply@ucsd.edu", "bankofamerica.com"]
 
-# Environment variables
 MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017")
 CLIENT_SECRETS_FILE = os.getenv("CLIENT_SECRETS_FILE", "credentials.json")
 BACKEND_BASE = os.getenv("BACKEND_URL", "http://localhost:8000").rstrip("/")
@@ -32,7 +28,6 @@ DB_NAME = os.getenv("DB_NAME", "gmail-analyzer")
 
 logger.info(f"model_utils initializing. MONGO_URI={MONGO_URI}, BACKEND_BASE={BACKEND_BASE}, FRONTEND_URL={FRONTEND_URL}, DB_NAME={DB_NAME}")
 
-# Try to connect to Mongo but don't crash the process if it's unavailable.
 client = None
 db = None
 tokens_col = None
@@ -63,7 +58,6 @@ def safe_filename(email: str) -> str:
     return re.sub(r'[^a-zA-Z0-9_.-]', '_', email)
 
 
-# ---------- TOKEN MANAGEMENT ----------
 def ensure_creds(email: str, force_reauth: bool = False):
     """
     Return google Credentials object if found and usable, otherwise None.
@@ -88,12 +82,10 @@ def ensure_creds(email: str, force_reauth: bool = False):
         logger.exception(f"ensure_creds: failed to construct Credentials for {email}: {e}")
         return None
 
-    # attempt refresh if possible
     if not creds.valid:
         if creds.expired and creds.refresh_token:
             try:
                 creds.refresh(Request())
-                # persist refreshed token
                 try:
                     tokens_col.update_one({"email": email}, {"$set": {"creds_json": json.loads(creds.to_json())}}, upsert=True)
                     logger.info(f"ensure_creds: refreshed and saved token for {email}")
@@ -116,7 +108,6 @@ def generate_authorization_url(email: str):
     """
     redirect_uri = f"{BACKEND_BASE}/oauth2callback"
 
-    # Ensure accounts collection has the email (best-effort)
     if accounts_col is not None:
         try:
             accounts_col.update_one({"email": email}, {"$setOnInsert": {"lastEmailTs": None}}, upsert=True)
@@ -126,11 +117,9 @@ def generate_authorization_url(email: str):
     else:
         logger.debug("generate_authorization_url: accounts_col not present (DB disabled)")
 
-    # Build OAuth flow from credentials file
     flow = Flow.from_client_secrets_file(CLIENT_SECRETS_FILE, scopes=SCOPES, redirect_uri=redirect_uri)
     auth_url, state = flow.authorization_url(access_type="offline", include_granted_scopes="true", prompt="consent", login_hint=email)
 
-    # Save oauth state -> email mapping (best-effort)
     if oauth_col is not None:
         try:
             oauth_col.update_one({"state": state}, {"$set": {"email": email, "created_at": datetime.utcnow().isoformat()}}, upsert=True)
@@ -163,7 +152,6 @@ def exchange_code_for_token(state: str, code: str):
     flow.fetch_token(code=code)
     creds = flow.credentials
 
-    # Save token (best-effort)
     if tokens_col is not None:
         try:
             tokens_col.update_one({"email": email}, {"$set": {"creds_json": json.loads(creds.to_json())}}, upsert=True)
@@ -173,13 +161,11 @@ def exchange_code_for_token(state: str, code: str):
     else:
         logger.warning("exchange_code_for_token: tokens_col not available - token not persisted.")
 
-    # Clean up state mapping (best-effort)
     try:
         oauth_col.delete_one({"state": state})
     except Exception as e:
         logger.exception(f"exchange_code_for_token: failed to delete oauth state {state}: {e}")
 
-    # Ensure account doc exists
     if accounts_col is not None:
         try:
             accounts_col.update_one({"email": email}, {"$set": {"lastEmailTs": None}}, upsert=True)
@@ -189,8 +175,6 @@ def exchange_code_for_token(state: str, code: str):
 
     return email
 
-
-# ---------- EMAIL FETCHING ----------
 def is_blocked(sender: str) -> bool:
     try:
         lower = sender.lower()
@@ -226,7 +210,6 @@ def _extract_text_from_payload(payload: Dict[str, Any]) -> str:
     if not payload:
         return ""
 
-    # Direct body on payload
     body = payload.get("body", {})
     data = body.get("data")
     mime = payload.get("mimeType", "").lower()
@@ -236,11 +219,9 @@ def _extract_text_from_payload(payload: Dict[str, Any]) -> str:
 
     if mime.startswith("text/html") and data:
         raw_html = _b64_urlsafe_decode(data)
-        # unescape HTML entities and remove tags
         text = html.unescape(re.sub(r"<[^>]+>", " ", raw_html))
         return re.sub(r"\s+", " ", text).strip()
 
-    # If there are parts, try to find text/plain first
     parts = payload.get("parts") or []
     plain_chunks = []
     html_chunks = []
@@ -255,7 +236,6 @@ def _extract_text_from_payload(payload: Dict[str, Any]) -> str:
             if txt:
                 html_chunks.append(txt)
         else:
-            # nested multiparts
             txt = _extract_text_from_payload(part)
             if txt:
                 plain_chunks.append(txt)
@@ -263,7 +243,6 @@ def _extract_text_from_payload(payload: Dict[str, Any]) -> str:
     if plain_chunks:
         return "\n\n".join(plain_chunks).strip()
     if html_chunks:
-        # prefer HTML->text if no plain parts
         return "\n\n".join(html_chunks).strip()
 
     return ""
@@ -277,22 +256,19 @@ def fetch_latest_emails(service, email: str, max_results: int = 20) -> List[Dict
     Returns list of dicts:
       { subject, from, date, date_header, content }
     """
-    # Candidate queries / list strategies in order of preference
     strategies = [
-        {"q": "in:inbox category:primary"},  # personal Gmail - primary only
-        {"q": "in:inbox"},                   # all messages in inbox
-        {"labelIds": ["INBOX"]},             # label-based fetch
-        {}                                   # generic list (last resort)
+        {"q": "in:inbox category:primary"}, 
+        {"q": "in:inbox"},                  
+        {"labelIds": ["INBOX"]},            
+        {}                                   
     ]
 
     messages = []
     for strat in strategies:
         try:
-            # build call
             call_kwargs = {"userId": email, "maxResults": max_results}
             call_kwargs.update({k: v for k, v in strat.items() if v is not None})
 
-            # messages.list accepts labelIds (list) OR q (string); ignore empty keys
             resp = service.users().messages().list(**call_kwargs).execute()
             msgs = resp.get("messages", []) or []
             if msgs:
@@ -303,7 +279,6 @@ def fetch_latest_emails(service, email: str, max_results: int = 20) -> List[Dict
                 logger.debug(f"fetch_latest_emails: strategy returned 0 messages for {email}: {strat}")
         except Exception as e:
             logger.debug(f"fetch_latest_emails: strategy {strat} failed for {email}: {e}")
-            # try next strategy
 
     if not messages:
         logger.info(f"fetch_latest_emails: no messages found for {email} with any strategy")
@@ -321,7 +296,6 @@ def fetch_latest_emails(service, email: str, max_results: int = 20) -> List[Dict
             sender = next((h["value"] for h in headers if h.get("name", "").lower() == "from"), "(unknown)")
             date_hdr = next((h["value"] for h in headers if h.get("name", "").lower() == "date"), "(no date)")
 
-            # convert internalDate (ms since epoch) to ISO
             ts_val = msg_data.get("internalDate")
             if ts_val:
                 try:
@@ -332,14 +306,11 @@ def fetch_latest_emails(service, email: str, max_results: int = 20) -> List[Dict
             else:
                 iso_ts = None
 
-            # extract body content robustly
             payload = msg_data.get("payload", {}) or {}
             content = _extract_text_from_payload(payload)
-            # If no content from payload attempt snippet
             if not content:
                 content = msg_data.get("snippet", "") or ""
 
-            # final cleanup whitespace
             content = re.sub(r'\s+', ' ', content).strip()
             result_emails.append({
                 "subject": subject,
@@ -389,7 +360,6 @@ def filter_new_emails(email: str, emails: List[Dict[str, Any]]) -> List[Dict[str
         try:
             ts = datetime.fromisoformat(e["date"])
         except Exception:
-            # if date parsing fails default to adding the email (safer)
             new_emails.append(e)
             continue
 
@@ -439,7 +409,6 @@ def fetch_for_emails(email_list: List[str], max_results: int = 20) -> Dict[str, 
 
 
 if __name__ == "__main__":
-    # quick manual test
     emails = input("Enter emails (comma separated): ").split(",")
     emails = [e.strip() for e in emails if e.strip()]
     print(json.dumps(fetch_for_emails(emails), indent=2))

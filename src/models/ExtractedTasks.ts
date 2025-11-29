@@ -1,16 +1,15 @@
-// src/models/ExtractedTask.ts
 import mongoose, { Schema, model, models } from "mongoose";
 
 export interface IExtractedTask {
   title: string;
   description?: string;
-  date?: string | null; // YYYY-MM-DD or null
-  time?: string | null; // HH:MM or null
+  date?: string | null; 
+  time?: string | null; 
   source_subject?: string;
   source_from?: string;
   confidence?: number;
-  _source_account?: string; // account email or "all_accounts"
-  source_email_ts?: string; // ISO timestamp of the source email (used for dedupe)
+  _source_account?: string; 
+  source_email_ts?: string; 
   addedToCalendar?: boolean;
   createdAt?: Date;
   updatedAt?: Date;
@@ -32,7 +31,7 @@ const ExtractedTaskSchema = new Schema<IExtractedTask>(
   { timestamps: true }
 );
 
-// create a helpful index for dedupe lookups
+
 ExtractedTaskSchema.index(
   { _source_account: 1, title: 1, source_subject: 1, source_email_ts: 1 },
   { unique: false }

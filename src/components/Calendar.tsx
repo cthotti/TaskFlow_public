@@ -1,4 +1,3 @@
-// src/components/Calendar.tsx
 "use client";
 import React, { ReactElement, useEffect, useState } from "react";
 import { useTaskContext } from "@/context/TaskContext";
@@ -15,7 +14,6 @@ export default function Calendar() {
   const [year] = useState(new Date().getFullYear());
   const [currentMonth, setCurrentMonth] = useState(new Date().getMonth());
 
-  // Fetch tasks once
   useEffect(() => {
     const fetchAll = async () => {
       const res = await fetch(
@@ -32,11 +30,9 @@ export default function Calendar() {
     fetchAll();
   }, []);
 
-  // Helper: get tasks for a specific date
   const tasksForDate = (dateStr: string) =>
     tasks.filter((t) => t.date?.startsWith(dateStr));
 
-  // Render current month
   const renderMonth = (month: number) => {
     const firstDay = new Date(year, month, 1).getDay();
     const daysInMonth = new Date(year, month + 1, 0).getDate();

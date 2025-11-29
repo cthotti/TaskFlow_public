@@ -1,4 +1,3 @@
-// src/pages/api/tasks/[id].ts
 import type { NextApiRequest, NextApiResponse } from "next";
 import connectDB from "@/lib/db";
 import Task from "@/models/Task";
@@ -22,7 +21,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     if (repeating !== undefined) updateData.repeating = repeating;
 
     if (completeForDate) {
-      // ✅ per-date completion for repeating tasks
       const task = await Task.findById(id);
       if (task) {
         const already = task.completedDates || [];

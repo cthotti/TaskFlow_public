@@ -1,9 +1,8 @@
-// src/models/ExtractedAccount.ts
 import mongoose, { Schema, model, models } from "mongoose";
 
 export interface IExtractedAccount {
   email: string;
-  lastEmailTs?: string | null; // ISO timestamp up to which we've processed emails
+  lastEmailTs?: string | null; 
   updatedAt?: Date;
 }
 

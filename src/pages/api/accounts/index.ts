@@ -1,5 +1,4 @@
 
-// pages/api/accounts/index.ts
 import type { NextApiRequest, NextApiResponse } from "next";
 import connectDB from "@/lib/db";
 import ExtractedAccount from "@/models/ExtractedAccount";
@@ -9,13 +8,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   try {
     if (req.method === "GET") {
-      // Return all accounts and their last processed email timestamp
       const accounts = await ExtractedAccount.find({});
       return res.status(200).json(accounts);
     }
 
     if (req.method === "POST") {
-      // Create or update account
       const { email, lastEmailTs } = req.body;
       if (!email) {
         return res.status(400).json({ error: "email required" });

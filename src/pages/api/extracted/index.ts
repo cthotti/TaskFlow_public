@@ -1,5 +1,4 @@
 
-// pages/api/extracted/index.ts
 import type { NextApiRequest, NextApiResponse } from "next";
 import connectDB from "@/lib/db";
 import ExtractedTask from "@/models/ExtractedTasks";
@@ -10,30 +9,18 @@ type Data = any;
 function escapeRegex(s: string) {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
-
-/**
- * Try to locate a task using several lookup strategies:
- * - findById (valid ObjectId string)
- * - findOne({ _id: candidate }) (handles documents whose _id is a string, not ObjectId)
- * - findOne({ _source_account, source_email_ts }) if both found in candidate
- * - findOne({ source_email_ts }) or findOne({ _source_account })
- * - fuzzy title match
- */
 async function findTaskByIdOrFallback(candidate: string) {
   if (!candidate) return null;
 
-  // 1) try ObjectId path
   if (mongoose.Types.ObjectId.isValid(candidate)) {
     try {
       const byId = await ExtractedTask.findById(candidate);
       if (byId) return { task: byId, reason: "by_id_objectid" };
     } catch (err) {
-      // continue to other strategies
       console.debug("findTaskByIdOrFallback: findById failed", (err as Error).message);
     }
   }
 
-  // 2) try literal _id value (string _id stored by other writer)
   try {
     const byLiteralId = await ExtractedTask.findOne({ _id: candidate });
     if (byLiteralId) return { task: byLiteralId, reason: "by_id_literal" };
@@ -41,7 +28,6 @@ async function findTaskByIdOrFallback(candidate: string) {
     console.debug("findTaskByIdOrFallback: findOne by literal _id failed", (err as Error).message);
   }
 
-  // 3) try parse email and iso timestamp from candidate
   const emailMatch = candidate.match(/[\w.+-]+@[\w.-]+\.\w+/);
   const isoTsMatch = candidate.match(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?/);
   if (emailMatch && isoTsMatch) {
@@ -51,21 +37,18 @@ async function findTaskByIdOrFallback(candidate: string) {
     if (byCombo) return { task: byCombo, reason: "by_account_and_ts", meta: { email, ts } };
   }
 
-  // 4) try timestamp-only match
   if (isoTsMatch) {
     const ts = isoTsMatch[0];
     const byTs = await ExtractedTask.findOne({ source_email_ts: ts });
     if (byTs) return { task: byTs, reason: "by_ts", meta: { ts } };
   }
 
-  // 5) try account-only match
   if (emailMatch) {
     const email = emailMatch[0];
     const byAccount = await ExtractedTask.findOne({ _source_account: email });
     if (byAccount) return { task: byAccount, reason: "by_account", meta: { email } };
   }
 
-  // 6) fuzzy title match
   let titleCandidate = candidate;
   if (emailMatch) titleCandidate = titleCandidate.replace(emailMatch[0], " ");
   if (isoTsMatch) titleCandidate = titleCandidate.replace(isoTsMatch[0], " ");
@@ -85,12 +68,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
 
   try {
     if (req.method === "GET") {
-      // Return all tasks (newest first) and normalize _id to string
       const rawTasks = await ExtractedTask.find({}).sort({ date: -1, _id: -1 });
       const tasks = rawTasks.map((t) => {
         const obj = (t as any).toObject ? (t as any).toObject() : t;
         obj._id = obj._id ? String(obj._id) : obj._id;
-        // ensure addedToCalendar exists
         if (typeof obj.addedToCalendar === "undefined") obj.addedToCalendar = false;
         return obj;
       });
@@ -120,7 +101,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       const { id, addedToCalendar } = req.body;
       if (!id) return res.status(400).json({ error: "id required" });
 
-      // Fast path 1: findById if valid ObjectId
       try {
         if (mongoose.Types.ObjectId.isValid(id)) {
           const updated = await ExtractedTask.findByIdAndUpdate(id, { addedToCalendar }, { new: true });
@@ -133,7 +113,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
         console.debug("PATCH: objectid path failed", (err as Error).message);
       }
 
-      // Fast path 2: direct literal _id match (string _id stored by other writer)
       try {
         const direct = await ExtractedTask.findOneAndUpdate({ _id: id }, { addedToCalendar }, { new: true });
         if (direct) {
@@ -144,7 +123,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
         console.debug("PATCH: literal _id path failed", (err as Error).message);
       }
 
-      // Fallback strategies
       const fallback = await findTaskByIdOrFallback(id);
       if (fallback?.task) {
         const updatedFallback = await ExtractedTask.findByIdAndUpdate((fallback.task as any)._id, { addedToCalendar }, { new: true });
@@ -163,7 +141,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
         return res.status(400).json({ error: "id query param required" });
       }
 
-      // 1) try objectid deletion
       try {
         if (mongoose.Types.ObjectId.isValid(id)) {
           const deleted = await ExtractedTask.findByIdAndDelete(id);
@@ -176,7 +153,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
         console.debug("DELETE: objectid deletion failed", (err as Error).message);
       }
 
-      // 2) try literal _id deletion
       try {
         const deletedLiteral = await ExtractedTask.findOneAndDelete({ _id: id });
         if (deletedLiteral) {
@@ -187,7 +163,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
         console.debug("DELETE: literal _id deletion failed", (err as Error).message);
       }
 
-      // 3) fallback
       const fallback = await findTaskByIdOrFallback(id);
       if (fallback?.task) {
         const deleted2 = await ExtractedTask.findByIdAndDelete((fallback.task as any)._id);

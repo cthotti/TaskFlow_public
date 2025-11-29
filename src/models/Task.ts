@@ -3,8 +3,8 @@ import mongoose, { Schema, model, models } from "mongoose";
 export interface RepeatingConfig {
   enabled: boolean;
   type?: "daily" | "everyOther" | "weekly";
-  days?: number[]; // for weekly: 0=Sun .. 6=Sat
-  startDate?: string; // YYYY-MM-DD — used for everyOther and reference
+  days?: number[]; 
+  startDate?: string; 
 }
 
 export interface Task {

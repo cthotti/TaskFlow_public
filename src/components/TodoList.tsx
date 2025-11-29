@@ -1,4 +1,3 @@
-// src/components/TodoList.tsx
 "use client";
 import { useEffect, useState } from "react";
 import { Inter } from "next/font/google";
@@ -19,7 +18,7 @@ type Task = {
   repeating?: {
     enabled: boolean;
     type?: "daily" | "everyOther" | "weekly";
-    days?: number[]; // 0..6
+    days?: number[]; 
     startDate?: string;
   };
 };
@@ -34,10 +33,9 @@ export default function TodoList() {
   const [dueTime, setDueTime] = useState("");
   const { selectedDate } = useTaskContext();
 
-  // repeating UI state
   const [repeatingEnabled, setRepeatingEnabled] = useState(false);
   const [repeatingType, setRepeatingType] = useState<"daily" | "everyOther" | "weekly">("daily");
-  const [repeatingDays, setRepeatingDays] = useState<number[]>([]); // for weekly
+  const [repeatingDays, setRepeatingDays] = useState<number[]>([]); 
   const [repeatingStart, setRepeatingStart] = useState<string>(selectedDate);
 
   useEffect(() => {
@@ -89,7 +87,6 @@ export default function TodoList() {
       return;
     }
 
-    // refresh
     await fetchTasks();
 
     setNewTask("");
@@ -108,11 +105,9 @@ export default function TodoList() {
 
     const markComplete = async (task: Task) => {
     if (task.repeating?.enabled) {
-      // ✅ For repeating tasks: just remove from today's view locally
       setTodayTasks((prev) => prev.filter((t) => t._id !== task._id));
       setCompletedTasks((prev) => [...prev, { ...task }]);
     } else {
-      // ✅ For normal one-off tasks: persist to DB
       await fetch(`/api/tasks/${task._id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },

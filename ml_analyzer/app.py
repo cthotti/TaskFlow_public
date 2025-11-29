@@ -1,5 +1,4 @@
 
-# app.py
 from fastapi import FastAPI, Request, Query
 from fastapi.responses import JSONResponse, RedirectResponse, HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -8,22 +7,21 @@ import json
 import os
 import logging
 
-import model_utils  # safe import (handles DB connectivity gracefully)
+import model_utils  
 
 app = FastAPI()
 
-# configure logging
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# allow both local dev and production origins
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "http://localhost:3000",
         "http://localhost:8000",
-        "https://task-flow-public-nu.vercel.app/",
-        "https://taskflow-public.onrender.com/",
+        "https://task-flow-public-nu.vercel.app",
+        "https://taskflow-public.onrender.com",
     ],
     allow_credentials=True,
     allow_methods=["*"],
@@ -45,15 +43,15 @@ async def start_auth(request: Request):
         logger.info(f"📩 /start_auth called with: {email}")
 
         if not email:
-            logger.error("❌ Missing email in request")
+            logger.error("Missing email in request")
             return JSONResponse({"error": "email required"}, status_code=400)
 
         auth_url, state = model_utils.generate_authorization_url(email)
-        logger.info(f"✅ Generated auth URL for {email}: {auth_url} (state={state})")
+        logger.info(f"Generated auth URL for {email}: {auth_url} (state={state})")
         return JSONResponse({"auth_url": auth_url, "state": state}, status_code=200)
 
     except Exception as e:
-        logger.exception("🔥 Error in /start_auth")
+        logger.exception("Error in /start_auth")
         return JSONResponse({"error": str(e)}, status_code=500)
 
 
@@ -68,10 +66,10 @@ def oauth2callback(code: str = Query(None), state: str = Query(None)):
         email = model_utils.exchange_code_for_token(state, code)
         frontend = os.getenv("FRONTEND_URL", "http://localhost:3000").rstrip("/")
         redirect_to = f"{frontend}/?auth=success&email={email}"
-        logger.info(f"✅ OAuth success for {email}, redirecting to {redirect_to}")
+        logger.info(f"OAuth success for {email}, redirecting to {redirect_to}")
         return RedirectResponse(redirect_to)
     except Exception as e:
-        logger.exception("🔥 OAuth callback failed")
+        logger.exception("OAuth callback failed")
         return HTMLResponse(f"<h1>Auth failed: {e}</h1>", status_code=500)
 
 
@@ -92,16 +90,11 @@ async def analyze(request: Request):
         return JSONResponse({"error": "emails list required"}, status_code=400)
 
     try:
-        # lazy import to avoid circular imports at module import time
         import ai_utils
-
-        # Call ai_utils high-level analysis. This will call model_utils.fetch_for_emails internally.
-        # ai_utils.analyze_for_emails returns either {"missing_auth": [...] } or { acct_email: [items...] }
         logger.info(f"/analyze: starting AI analysis for {len(emails)} accounts")
         analysis_result = ai_utils.analyze_for_emails(emails, save_output=False)
 
         if not analysis_result:
-            # empty result (no items) is acceptable
             logger.info("/analyze: ai_utils returned empty result")
             return JSONResponse({"inserted": 0}, status_code=200)
 
@@ -110,7 +103,6 @@ async def analyze(request: Request):
             logger.info(f"/analyze: missing auth for accounts: {missing}")
             return JSONResponse({"missing_auth": missing}, status_code=200)
 
-        # analysis_result is expected to be { account_email: [extracted_items...] }
         from pymongo import MongoClient
 
         mongo_uri = os.getenv("MONGO_URI", "mongodb://localhost:27017")
@@ -127,21 +119,16 @@ async def analyze(request: Request):
 
         all_inserted = []
 
-        # Persist extracted items per account
         for acct, items in analysis_result.items():
             if not isinstance(items, list) or len(items) == 0:
                 continue
 
             for item in items:
-                # attach metadata
                 item["_source_account"] = acct
-                # ensure id
                 item.pop("id", None)
-                # Dedup/Upsert key:
                 if item.get("source_email_ts"):
                     key = {"_source_account": acct, "source_email_ts": item.get("source_email_ts")}
                 else:
-                    # fallback key using subject/title; this may create duplicates if not unique
                     key = {"_source_account": acct, "title": item.get("title"), "source_subject": item.get("source_subject")}
                 try:
                     tasks_col.update_one(
@@ -153,10 +140,7 @@ async def analyze(request: Request):
                 except Exception as e:
                     logger.exception(f"/analyze: failed to upsert task for {acct} item={item}: {e}")
 
-            # Try update account lastEmailTs from model_utils state if possible (model_utils updates it on fetch)
             try:
-                # If model_utils updated accounts_col, this will succeed; if not present, no-op.
-                # We attempt a best-effort read of the lastEmailTs from model_utils.accounts_col if available.
                 if getattr(model_utils, "accounts_col", None) is not None:
                     acct_doc = model_utils.accounts_col.find_one({"email": acct})
                     if acct_doc and acct_doc.get("lastEmailTs"):
@@ -169,7 +153,7 @@ async def analyze(request: Request):
         return JSONResponse({"inserted": len(all_inserted)}, status_code=200)
 
     except Exception as e:
-        logger.exception("🔥 ERROR in /analyze")
+        logger.exception("ERROR in /analyze")
         return JSONResponse({"error": str(e)}, status_code=500)
 
 

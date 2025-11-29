@@ -1,9 +1,8 @@
-// src/components/ExtractedTasks.tsx
 "use client";
 import { useEffect, useState } from "react";
 
 type ExtractedTask = {
-  _id?: any; // could be ObjectId or string or { $oid: ... }
+  _id?: any; 
   title: string;
   description?: string;
   date?: string;
@@ -36,26 +35,19 @@ export default function ExtractedTasks() {
   const [authQueue, setAuthQueue] = useState<string[]>([]);
   const [authInProgress, setAuthInProgress] = useState<string | null>(null);
 
-  // per-task loading states keyed by stringified Mongo _id
   const [taskLoading, setTaskLoading] = useState<Record<string, boolean>>({});
 
-  // ---- helpers ----
   const stringifyId = (id?: any) => {
-    // handle falsy specially
     if (!id && id !== 0) return undefined;
     try {
-      // common case: id is string
       if (typeof id === "string") return id;
-      // case: Mongo returns { $oid: "..." }
       if (typeof id === "object" && id !== null) {
         if ("$oid" in id && typeof id.$oid === "string") return id.$oid;
         if ("oid" in id && typeof id.oid === "string") return id.oid;
-        // if it has toString that returns the hex string (ObjectId has this)
         if (typeof id.toString === "function") {
           const s = id.toString();
           if (s && s !== "[object Object]") return s;
         }
-        // last resort: try JSON
         try {
           return JSON.stringify(id);
         } catch {
@@ -68,7 +60,6 @@ export default function ExtractedTasks() {
     }
   };
 
-  // ---- Fetch Tasks ----
   const fetchTasks = async () => {
     try {
       const res = await fetch(TASKS_API);
@@ -78,7 +69,6 @@ export default function ExtractedTasks() {
         return;
       }
       const data = await res.json();
-      // ensure each task has normalized _id
       const normalized = (data || []).map((t: ExtractedTask) => ({
         ...t,
         _id: stringifyId(t._id),
@@ -90,7 +80,6 @@ export default function ExtractedTasks() {
     }
   };
 
-  // ---- Fetch Accounts ----
   const fetchAccounts = async () => {
     try {
       const res = await fetch(ACCOUNTS_API);
@@ -101,7 +90,6 @@ export default function ExtractedTasks() {
     }
   };
 
-  // ---- Delete Task ----
   const deleteTask = async (id?: string) => {
     const realId = stringifyId(id);
     if (!realId) {
@@ -118,7 +106,6 @@ export default function ExtractedTasks() {
         const txt = await res.text().catch(() => "no response body");
         throw new Error(`Delete failed: ${res.status} ${txt}`);
       }
-      // optimistic UI update: remove from array
       setTasks((prev) => prev.filter((t) => stringifyId(t._id) !== realId));
     } catch (err) {
       console.error("deleteTask failed", err);
@@ -128,7 +115,6 @@ export default function ExtractedTasks() {
     }
   };
 
-  // ---- Add to Calendar ----
   const addToCalendar = async (task: ExtractedTask) => {
     const id = stringifyId(task._id);
     if (!id) {
@@ -160,7 +146,6 @@ export default function ExtractedTasks() {
 
       const created = await res.json().catch(() => null);
 
-      // mark extracted task as addedToCalendar on server (best-effort)
       const patchRes = await fetch(TASKS_API, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -170,24 +155,17 @@ export default function ExtractedTasks() {
       if (!patchRes.ok) {
         const text = await patchRes.text().catch(() => "");
         console.warn("Failed to mark task as added on server:", patchRes.status, text);
-        // If we can't patch, still attempt to delete (user expects it removed), but warn.
       } else {
-        // update local UI to show it's added (briefly)
         setTasks((prev) => prev.map((t) => (stringifyId(t._id) === id ? { ...t, addedToCalendar: true } : t)));
       }
 
-      // --- NEW: delete the extracted task after creating calendar event ---
-      // Many users prefer to remove the extracted suggestion once it's been added to calendar.
-      // We attempt DELETE; if it fails, we keep the task and inform the user.
       try {
         const delRes = await fetch(`${TASKS_API}?id=${encodeURIComponent(id)}`, { method: "DELETE" });
         if (delRes.ok) {
-          // optimistic removal
           setTasks((prev) => prev.filter((t) => stringifyId(t._id) !== id));
         } else {
           const txt = await delRes.text().catch(() => "");
           console.warn("Failed to delete after calendar add:", delRes.status, txt);
-          // Inform user but not treat as fatal
           alert("Event created but failed to remove the extracted task from the list.");
         }
       } catch (delErr) {
@@ -195,7 +173,6 @@ export default function ExtractedTasks() {
         alert("Event created but failed to remove the extracted task from the list.");
       }
 
-      // refresh accounts/tasks to ensure state is consistent
       await fetchAccounts();
       await fetchTasks();
 
@@ -208,7 +185,6 @@ export default function ExtractedTasks() {
     }
   };
 
-  // ---- Analyze via FastAPI ----
   const analyzeViaFastAPI = async (emails: string[]) => {
     setAnalyzeLoading(true);
     setMissingAuth([]);
@@ -232,7 +208,6 @@ export default function ExtractedTasks() {
     }
   };
 
-  // ---- Request Auth ----
   const requestAuthFor = async (email: string) => {
     try {
       const res = await fetch(`${FASTAPI_BASE}/start_auth`, {
@@ -276,7 +251,6 @@ export default function ExtractedTasks() {
     fetchAccounts();
   }, []);
 
-  // ---- Connect: save accounts then request auth ----
   const onConnectClick = async () => {
     const emails = emailInput.split(",").map((s) => s.trim()).filter(Boolean);
     setAuthQueue(emails);
